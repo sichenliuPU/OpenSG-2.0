@@ -8,7 +8,8 @@ SwiftComp centerline values without importing any plotting package:
 python examples\simple_cubic_dehomogenization\verify_dehomogenization.py
 ```
 
-Plotting is a separate example post-processing step:
+Plotting is a separate example post-processing step. It writes six individual
+stress figures suitable for inclusion in a manuscript:
 
 ```powershell
 python examples\simple_cubic_dehomogenization\plot_centerline.py

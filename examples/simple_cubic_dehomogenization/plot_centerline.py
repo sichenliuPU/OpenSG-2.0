@@ -1,4 +1,4 @@
-"""Plot the simple-cubic OpenSG/SwiftComp centerline comparison data."""
+"""Plot separate simple-cubic OpenSG/SwiftComp centerline comparisons."""
 
 from __future__ import annotations
 
@@ -14,21 +14,25 @@ import numpy as np
 COMPONENTS = ("S11", "S22", "S33", "S23", "S13", "S12")
 
 
-def plot_centerline(source: str | Path, output: str | Path) -> Path:
-    """Create the six-component stress plot from a comparison CSV file."""
+def plot_centerline_components(
+    source: str | Path, output_directory: str | Path
+) -> tuple[Path, ...]:
+    """Create one manuscript-ready plot for each stress component."""
 
     source = Path(source)
-    output = Path(output)
+    output_directory = Path(output_directory)
     records = np.genfromtxt(source, delimiter=",", names=True, dtype=None)
     x = np.asarray(records["x"], dtype=float)
-    figure, axes = plt.subplots(
-        3, 2, figsize=(11.0, 10.0), sharex=True, constrained_layout=True
-    )
     styles = {
         "Euler": ("#2166ac", "--"),
         "Timoshenko": ("#b2182b", "-"),
     }
-    for axis, component in zip(axes.flat, COMPONENTS, strict=True):
+    output_directory.mkdir(parents=True, exist_ok=True)
+    outputs = []
+    for component in COMPONENTS:
+        figure, axis = plt.subplots(
+            figsize=(7.2, 4.8), constrained_layout=True
+        )
         for theory in ("Timoshenko", "Euler"):
             color, linestyle = styles[theory]
             axis.plot(
@@ -49,25 +53,25 @@ def plot_centerline(source: str | Path, output: str | Path) -> Path:
             zorder=4,
         )
         axis.axvline(0.015, color="0.4", linestyle="--", linewidth=1.0)
+        axis.set_xlabel("x along the junction-center to +X-beam line")
         axis.set_ylabel(f"{component} (MPa)")
         axis.grid(alpha=0.2)
-    handles, labels = axes[0, 0].get_legend_handles_labels()
-    order = [
-        labels.index("OpenSG Euler"),
-        labels.index("OpenSG Timoshenko"),
-        labels.index("SwiftComp"),
-    ]
-    axes[0, 0].legend(
-        [handles[index] for index in order],
-        [labels[index] for index in order],
-        frameon=False,
-    )
-    for axis in axes[-1]:
-        axis.set_xlabel("x along the junction-center to +X-beam line")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(output, dpi=220, facecolor="white")
-    plt.close(figure)
-    return output
+        handles, labels = axis.get_legend_handles_labels()
+        order = [
+            labels.index("OpenSG Euler"),
+            labels.index("OpenSG Timoshenko"),
+            labels.index("SwiftComp"),
+        ]
+        axis.legend(
+            [handles[index] for index in order],
+            [labels[index] for index in order],
+            frameon=False,
+        )
+        output = output_directory / f"simple_cubic_plus_x_{component}.png"
+        figure.savefig(output, dpi=300, facecolor="white")
+        plt.close(figure)
+        outputs.append(output)
+    return tuple(outputs)
 
 
 def main() -> None:
@@ -80,12 +84,13 @@ def main() -> None:
         default=directory / "simple_cubic_plus_x_stress_line.csv",
     )
     parser.add_argument(
-        "--output",
+        "--output-dir",
         type=Path,
-        default=directory / "simple_cubic_plus_x_stress_line.png",
+        default=directory,
     )
     arguments = parser.parse_args()
-    print(f"line_plot={plot_centerline(arguments.source, arguments.output)}")
+    for output in plot_centerline_components(arguments.source, arguments.output_dir):
+        print(f"line_plot={output}")
 
 
 if __name__ == "__main__":
