@@ -68,6 +68,41 @@ def three_node_shape_matrix(xi: float, length: float) -> FloatArray:
     return result
 
 
+def three_node_center_matrix(xi: float, length: float) -> FloatArray:
+    """Return centerline translations and rotations in local coordinates."""
+
+    result = np.zeros((6, 18), dtype=float)
+    axial = [_evaluate(coefficients, xi) for coefficients in _AXIAL_COEFFICIENTS]
+    transverse = [
+        _evaluate(coefficients, xi)
+        for coefficients in _BENDING_TRANSLATION_COEFFICIENTS
+    ]
+    transverse_derivative = [
+        (2.0 / length) * _evaluate(coefficients, xi, 1)
+        for coefficients in _BENDING_TRANSLATION_COEFFICIENTS
+    ]
+    rotation_coefficients = _bending_rotation_coefficients(length)
+    rotations = [_evaluate(coefficients, xi) for coefficients in rotation_coefficients]
+    rotation_derivative = [
+        (2.0 / length) * _evaluate(coefficients, xi, 1)
+        for coefficients in rotation_coefficients
+    ]
+    for node in range(3):
+        start = 6 * node
+        result[0, start] = axial[node]
+        result[1, start + 1] = transverse[node]
+        result[1, start + 5] = rotations[node]
+        result[2, start + 2] = transverse[node]
+        result[2, start + 4] = -rotations[node]
+        result[3, start + 3] = axial[node]
+        # theta_2=-du_3/dx and theta_3=du_2/dx.
+        result[4, start + 2] = -transverse_derivative[node]
+        result[4, start + 4] = rotation_derivative[node]
+        result[5, start + 1] = transverse_derivative[node]
+        result[5, start + 5] = rotation_derivative[node]
+    return result
+
+
 def three_node_generalized_strain_matrix(xi: float, length: float) -> FloatArray:
     """Return the four by eighteen Euler generalized-strain matrix."""
 

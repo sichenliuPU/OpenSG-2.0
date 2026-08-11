@@ -94,8 +94,8 @@ def periodic_map(points, tol=1e-8, ndof_per_node=3):
 
 def apply_pbc_reduction(K_full, R_full, dof_map_full):
     """
-    Condenses K (N, N) -> K_red (M, M)
-    Condenses R (N,)   -> R_red (M,)
+    Reduces K (N, N) -> K_red (M, M)
+    Reduces R (N,)   -> R_red (M,)
     Where M is the number of unique master DOFs.
     """
     
@@ -112,11 +112,11 @@ def apply_pbc_reduction(K_full, R_full, dof_map_full):
     # K_red = L.T @ K_full @ L
     # Logic: K_reduced[I, J] = Sum(K_full[i, j]) where map[i]=I and map[j]=J
     
-    # Step A: Sum Columns (Condense j -> J)
+    # Step A: Sum Columns (reduce j -> J)
     # We want to add column j into column map[j]
     K_col_reduced = jnp.zeros_like(K_full).at[:, dof_map_full].add(K_full)
     
-    # Step B: Sum Rows (Condense i -> I)
+    # Step B: Sum Rows (reduce i -> I)
     # We want to add row i into row map[i]
     # Note: We operate on K_col_reduced from Step A
     K_total_reduced_fullsize = jnp.zeros_like(K_col_reduced).at[dof_map_full, :].add(K_col_reduced)

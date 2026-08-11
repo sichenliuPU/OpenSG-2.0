@@ -6,6 +6,34 @@ The beam and hybrid solver uses the standard OpenSG command for all junction mod
 opensg model.sc 3D H
 ```
 
+After homogenization, three-dimensional localization follows the SwiftComp
+command and file convention:
+
+```text
+opensg model.sc 3D L
+```
+
+## Solver and utility separation
+
+The homogenization and localization paths operate only on user-supplied input
+files. Neither path imports example programs, plotting packages, or geometry
+generation utilities.
+
+For `3D H`, supply the main `.sc` file and its `.sc.msg` supplement. Junction
+mode 1 additionally supplies solid-junction `.sc/.sc.msg` inputs; mode 2
+supplies reusable `.kj` files.
+
+For `3D L`, also supply `.glb`, each `BEAM_RECOVERY` VABS section, and a
+prebuilt solid-junction source sharing the basename of every mode-2 `.kj`
+source. Input paths may be absolute or relative to the main `.sc.msg` file.
+Localization reconstructs its required operators from those inputs and does
+not require a previous `3D H` run or a `.k` output file.
+
+Geometry builders are optional preprocessing tools. For example,
+`tools/build_boolean_junction_input.py` writes a reusable junction
+`.sc/.sc.msg` pair. Plotting under `examples/` is optional post-processing and
+is not loaded by either solver.
+
 The first input record accepts an optional fifth control value:
 
 ```text
@@ -94,6 +122,42 @@ with the connection point.
 OpenSG then applies the beam periodic mapping; the local 3D solid-junction mesh
 does not require periodic constraints.
 
+Optional localization records follow all connection records. Associate each
+beam type with the VABS section used to obtain its three-dimensional fields:
+
+```text
+BEAM_RECOVERY beam_type_id vabs_section_source
+```
+
+For a junction type whose homogenization record uses a reusable `.kj` file,
+localization automatically requires a solid input with the same basename:
+
+```text
+junction.sc.kj  -> junction.sc and junction.sc.msg
+junction.kj     -> junction.sc and junction.sc.msg
+```
+
+The `.sc` file is a standard OpenSG solid-junction input and `.sc.msg` contains
+its connection/interface definitions. It may contain TET4/TRI3 or TET10/TRI6
+data. Mesh-generation utilities create these files before a solver run;
+homogenization and localization never generate geometry. Homogenization needs
+only the `.kj`. Localization reports an error if either same-basename solid
+input is absent or its connection geometry does not match the `.kj` file.
+
+For elastic 3D localization, `model.sc.glb` uses the SwiftComp layout:
+
+```text
+v1 v2 v3
+C11 C12 C13
+C21 C22 C23
+C31 C32 C33
+id1
+q1 q2 q3 q4 q5 q6
+```
+
+`id1=1` supplies engineering strains `[e11,e22,e33,2e23,2e13,2e12]`;
+`id1=0` supplies stresses `[s11,s22,s33,s23,s13,s12]`.
+
 ## Solid junction connection points and interfaces
 
 A mode-1 junction source `junction.sc` uses standard OpenSG 3D solid
@@ -138,6 +202,13 @@ model.sc.k
 
 Mode 1 additionally writes one reusable `.kj` file for every unique solid
 junction type.
+
+A `3D L` run writes SwiftComp-compatible local fields:
+
+```text
+model.sc.u   # node_no u1 u2 u3
+model.sc.sn  # y1 y2 y3, six engineering strains, six stresses
+```
 
 ## Input validation
 

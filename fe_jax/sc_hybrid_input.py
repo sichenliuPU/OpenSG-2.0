@@ -58,6 +58,15 @@ class HybridSupplement:
     junction_types: dict[int, JunctionType]
     junction_instances: dict[int, JunctionInstance]
     junction_connections: tuple[JunctionConnection, ...]
+    beam_recovery: dict[int, "BeamRecovery"]
+
+
+@dataclass(frozen=True)
+class BeamRecovery:
+    """VABS cross-section source used to localize one beam type."""
+
+    beam_type_id: int
+    source: Path
 
 
 def _data_lines(path: Path) -> list[str]:
@@ -603,8 +612,31 @@ def read_hybrid_supplement(
                 image_shift=image_shift,
             )
         )
-    if cursor != len(lines):
-        raise ValueError(f"Unexpected records at the end of {path}.")
+    beam_recovery: dict[int, BeamRecovery] = {}
+    while cursor < len(lines):
+        values = shlex.split(lines[cursor])
+        cursor += 1
+        if not values:
+            continue
+        keyword = values[0].upper()
+        if keyword == "BEAM_RECOVERY":
+            if len(values) != 3:
+                raise ValueError(
+                    "BEAM_RECOVERY requires: beam_type_id vabs_section_source."
+                )
+            beam_type_id = int(values[1])
+            source = Path(values[2])
+            if not source.is_absolute():
+                source = base / source
+            if beam_type_id in beam_recovery:
+                raise ValueError(
+                    f"Beam type {beam_type_id} has multiple recovery records."
+                )
+            beam_recovery[beam_type_id] = BeamRecovery(beam_type_id, source)
+        else:
+            raise ValueError(
+                f"Unexpected recovery record {values[0]!r} at the end of {path}."
+            )
     return HybridSupplement(
         version=version,
         beam_types=beam_types,
@@ -612,6 +644,7 @@ def read_hybrid_supplement(
         junction_types=junction_types,
         junction_instances=junction_instances,
         junction_connections=tuple(connections),
+        beam_recovery=beam_recovery,
     )
 
 

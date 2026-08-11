@@ -26,7 +26,7 @@ from .junction import (
     read_junction_stiffness,
     write_junction_stiffness,
 )
-from .junction_solid import calculate_junction_stiffness
+from .junction_solid import JunctionSolution, analyze_junction
 from .sc_hybrid_input import (
     HybridSupplement,
     StructuralGenomeInput,
@@ -56,12 +56,27 @@ class HomogenizationResult:
     junction_analysis_time: float
     homogenization_time: float
     total_time: float
+    nodes: FloatArray
+    elements: tuple
+    junction_stiffness_by_type: dict[int, JunctionStiffness]
+    junction_solution_by_type: dict[int, JunctionSolution]
+    junction_assemblies: tuple["JunctionAssembly", ...]
+
+
+@dataclass(frozen=True)
+class JunctionAssembly:
+    """Maps one physical junction between global and connection variables."""
+
+    identifier: int
+    junction_type_id: int
+    b_v: FloatArray
+    b_epsilon: FloatArray
 
 
 def _assemble_beams(
     model: StructuralGenomeInput,
     supplement: HybridSupplement,
-) -> tuple[HomogenizationTerms, dict[int, np.ndarray], FloatArray]:
+) -> tuple[HomogenizationTerms, dict[int, np.ndarray], FloatArray, tuple]:
     nodes, elements = build_beam_discretization(model, supplement)
     terms = create_homogenization_terms(len(nodes))
     connectivity: dict[int, np.ndarray] = {}
@@ -85,26 +100,29 @@ def _assemble_beams(
             raise ValueError(f"Unsupported beam theory: {beam_type.theory}")
         add_element_terms(terms, local_terms)
         connectivity[element.identifier] = element.node_ids
-    return terms, connectivity, nodes
+    return terms, connectivity, nodes, elements
 
 
 def _load_junction_types(
     model: StructuralGenomeInput,
     supplement: HybridSupplement,
-) -> tuple[dict[int, JunctionStiffness], float]:
+) -> tuple[dict[int, JunctionStiffness], dict[int, JunctionSolution], float]:
     if model.junction_flag == 0:
         if supplement.junction_types or supplement.junction_instances or supplement.junction_connections:
             raise ValueError("junction_flag=0 does not permit hybrid junction records.")
-        return {}, 0.0
+        return {}, {}, 0.0
     if not supplement.junction_types:
         raise ValueError("Hybrid junction modes require at least one junction type.")
 
     started = perf_counter()
     stiffness_by_type: dict[int, JunctionStiffness] = {}
+    solution_by_type: dict[int, JunctionSolution] = {}
     for identifier, junction_type in supplement.junction_types.items():
         if model.junction_flag == 1:
             solid = read_solid_junction(junction_type.source)
-            stiffness = calculate_junction_stiffness(solid)
+            solution = analyze_junction(solid)
+            stiffness = solution.stiffness
+            solution_by_type[identifier] = solution
             output_path = Path(str(junction_type.source) + ".kj")
             write_junction_stiffness(output_path, stiffness)
         else:
@@ -119,7 +137,7 @@ def _load_junction_types(
                 f"but its source contains {len(stiffness.connection_points)}."
             )
         stiffness_by_type[identifier] = stiffness
-    return stiffness_by_type, perf_counter() - started
+    return stiffness_by_type, solution_by_type, perf_counter() - started
 
 
 def _assemble_junctions(
@@ -129,7 +147,7 @@ def _assemble_junctions(
     connectivity: dict[int, np.ndarray],
     nodes: FloatArray,
     stiffness_by_type: dict[int, JunctionStiffness],
-) -> None:
+) -> tuple[JunctionAssembly, ...]:
     connections_by_junction: dict[int, list] = {}
     endpoint_node_counts: dict[int, int] = {}
     for node_ids in connectivity.values():
@@ -166,6 +184,7 @@ def _assemble_junctions(
         connections_by_junction.setdefault(connection.junction_id, []).append(connection)
 
     number_of_dofs = terms.e.shape[0]
+    assemblies: list[JunctionAssembly] = []
     for identifier, instance in supplement.junction_instances.items():
         junction_type = supplement.junction_types.get(instance.junction_type_id)
         if junction_type is None:
@@ -182,9 +201,16 @@ def _assemble_junctions(
             stiffness=stiffness,
         )
         add_junction_terms(terms, b_v, b_epsilon, stiffness)
+        assemblies.append(JunctionAssembly(
+            identifier=identifier,
+            junction_type_id=instance.junction_type_id,
+            b_v=b_v,
+            b_epsilon=b_epsilon,
+        ))
     undefined = set(connections_by_junction) - set(supplement.junction_instances)
     if undefined:
         raise ValueError(f"Connections reference undefined junctions: {sorted(undefined)}")
+    return tuple(assemblies)
 
 
 def _minimum_norm_solve(matrix: FloatArray, right_hand_side: FloatArray) -> FloatArray:
@@ -289,9 +315,9 @@ def homogenize(
     )
     supplement = read_hybrid_supplement(supplement_path)
     validate_hybrid_input(model, supplement)
-    terms, connectivity, nodes = _assemble_beams(model, supplement)
-    stiffness_by_type, junction_analysis_time = _load_junction_types(model, supplement)
-    _assemble_junctions(
+    terms, connectivity, nodes, elements = _assemble_beams(model, supplement)
+    stiffness_by_type, solution_by_type, junction_analysis_time = _load_junction_types(model, supplement)
+    junction_assemblies = _assemble_junctions(
         model, supplement, terms, connectivity, nodes, stiffness_by_type
     )
 
@@ -318,5 +344,10 @@ def homogenize(
         junction_analysis_time=junction_analysis_time,
         homogenization_time=homogenization_time,
         total_time=perf_counter() - total_started,
+        nodes=nodes,
+        elements=elements,
+        junction_stiffness_by_type=stiffness_by_type,
+        junction_solution_by_type=solution_by_type,
+        junction_assemblies=junction_assemblies,
     )
     return model, supplement, result

@@ -28,6 +28,14 @@ class SolidJunctionModel:
     interface_faces: tuple[IntArray, ...]
 
 
+@dataclass(frozen=True)
+class JunctionSolution:
+    """Junction stiffness together with its full solid displacement map."""
+
+    stiffness: JunctionStiffness
+    displacement_recovery: FloatArray
+
+
 _TET10_EDGES = ((0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3))
 
 
@@ -262,8 +270,8 @@ def interface_extraction(model: SolidJunctionModel) -> FloatArray:
     return extraction
 
 
-def calculate_junction_stiffness(model: SolidJunctionModel) -> JunctionStiffness:
-    """Calculate generalized junction stiffness from a 3D solid model."""
+def analyze_junction(model: SolidJunctionModel) -> JunctionSolution:
+    """Calculate junction stiffness and the solid displacement recovery map."""
 
     stiffness = assemble_solid_stiffness(model)
     extraction = interface_extraction(model)
@@ -281,4 +289,13 @@ def calculate_junction_stiffness(model: SolidJunctionModel) -> JunctionStiffness
     solution = splu(system).solve(right_hand_side)
     matrix = solution[number_of_solid_dofs:]
     data = JunctionStiffness(model.connection_points, 0.5 * (matrix + matrix.T))
-    return remove_rigid_roundoff(data)
+    return JunctionSolution(
+        stiffness=remove_rigid_roundoff(data),
+        displacement_recovery=solution[:number_of_solid_dofs],
+    )
+
+
+def calculate_junction_stiffness(model: SolidJunctionModel) -> JunctionStiffness:
+    """Calculate generalized junction stiffness from a 3D solid model."""
+
+    return analyze_junction(model).stiffness

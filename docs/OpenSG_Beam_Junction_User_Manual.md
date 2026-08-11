@@ -1,7 +1,8 @@
 # OpenSG Beam and Beam–Junction Homogenization User Manual
 
-Version 0.1  
-Applicable analysis: linear-elastic homogenization of three-dimensional periodic beam-based structure genes.
+Version 0.2
+Applicable analysis: linear-elastic homogenization and dehomogenization of
+three-dimensional periodic beam-based structure genes.
 
 ## 1. Purpose and scope
 
@@ -14,7 +15,10 @@ The program supports:
 - junction stiffness calculated from linear or quadratic tetrahedral solid models;
 - previously calculated, reusable junction-stiffness files;
 - internal junctions and periodically owned face, edge, and corner junctions;
-- full (6\times6) effective stiffness and compliance matrices.
+- full (6\times6) effective stiffness and compliance matrices;
+- SwiftComp-compatible global-field input for dehomogenization;
+- Euler--Bernoulli and Timoshenko beam recovery through VABS; and
+- three-dimensional junction displacement, strain, and stress recovery.
 
 The current solid-junction analysis uses the standard OpenSG `.sc` mesh input.
 It supports linear TET4 elements with TRI3 interfaces and quadratic TET10
@@ -42,6 +46,18 @@ Depending on the selected junction mode, additional files are required:
 | 0 | None |
 | 1 | One 3D solid `.sc` file and companion `.sc.msg` file for each junction type |
 | 2 | One `.kj` junction-stiffness file for each junction type |
+
+Dehomogenization additionally requires:
+
+| File | Purpose |
+|---|---|
+| `model.sc.glb` | Macroscopic displacement, deformation, and strain or stress |
+| VABS section source | Three-dimensional recovery for every beam type |
+| Same-basename junction `.sc/.sc.msg` | Junction recovery when flag 2 reads a `.kj` file |
+
+For example, a flag-2 source named `junction.sc.kj` requires `junction.sc` and
+`junction.sc.msg` for dehomogenization. Homogenization itself requires only
+the `.kj` file.
 
 Relative junction filenames are interpreted relative to the directory that
 contains `model.sc.msg`.
@@ -86,6 +102,22 @@ constants, model size, junction mode, mechanism status, and timing.
 
 Junction flag 1 also writes a reusable `.kj` file beside every referenced
 solid-junction `.sc` file.
+
+Run dehomogenization with:
+
+```text
+opensg model.sc 3D L
+```
+
+This command is standalone: it reconstructs the required operators from the
+supplied inputs and does not require an earlier `3D H` run or a `.k` file.
+Use `--stations N` to select the number of axial VABS stations per beam and
+`--vabs PATH` to select the VABS executable. The command writes:
+
+```text
+model.sc.u
+model.sc.sn
+```
 
 ## 4. Choosing the beam and junction models
 
@@ -594,6 +626,23 @@ matrix.
 Do not change the connection-point order, origins, or frames without
 transforming the stiffness matrix consistently.
 
+### 10.2 Same-basename solid input for dehomogenization
+
+A flag-2 homogenization reads only the `.kj` file. A flag-2
+dehomogenization also reads the already prepared solid mesh with the same
+basename:
+
+```text
+junction.sc.kj  -> junction.sc and junction.sc.msg
+junction.kj     -> junction.sc and junction.sc.msg
+```
+
+The solid input uses the format in Section 9. Its connection identifiers,
+origins, frames, and order must match the `.kj` connection records. OpenSG
+stops with an input error if the `.sc` or `.sc.msg` file is absent or the
+connection geometry differs. Neither homogenization nor dehomogenization
+creates the junction mesh.
+
 ## 11. BCCH tutorial examples
 
 The directory
@@ -714,7 +763,132 @@ is zero or numerically negligible. This can be intentional, but it commonly
 indicates missing members, missing periodic constraints, or incorrect
 connections.
 
-## 13. Input checks and common errors
+## 13. Dehomogenization
+
+Dehomogenization recovers three-dimensional displacement, engineering strain,
+and Cauchy stress from a prescribed macroscopic state. The solver uses only
+the model and recovery inputs described below. Mesh-generation and plotting
+programs are separate preprocessing and post-processing utilities.
+
+### 13.1 Required inputs
+
+A dehomogenization run requires:
+
+```text
+model.sc
+model.sc.msg
+model.sc.glb
+```
+
+Every beam type must have a `BEAM_RECOVERY` record referencing its VABS
+cross-section source. Junction flag 1 reuses each junction type's solid source.
+For junction flag 2, the same-basename solid `.sc/.sc.msg` files described in
+Section 10.2 must already exist.
+
+The `.k` homogenization output is not an input to dehomogenization. Users may
+run `3D H` and `3D L` independently from the same model files.
+
+### 13.2 Beam-recovery records
+
+After all junction-connection records in `model.sc.msg`, associate every beam
+type with its VABS section input:
+
+```text
+BEAM_RECOVERY beam_type_id vabs_section_source
+```
+
+Example:
+
+```text
+BEAM_RECOVERY 1 sections/square0.sg
+BEAM_RECOVERY 2 sections/tube.sg
+```
+
+Relative paths are interpreted relative to `model.sc.msg`. The VABS executable
+is selected by `--vabs PATH`, the `VABS_EXE` environment variable, or the
+standard Windows VABS installation path, in that order.
+
+### 13.3 Global-field file: `model.sc.glb`
+
+The elastic three-dimensional global-field file follows the SwiftComp layout:
+
+```text
+v1 v2 v3
+C11 C12 C13
+C21 C22 C23
+C31 C32 C33
+id1
+q1 q2 q3 q4 q5 q6
+```
+
+`v1,v2,v3` are the macroscopic displacement components and `C` is the
+deformation matrix. The final flag and vector select the prescribed quantity:
+
+```text
+id1 = 1: q = [e11,e22,e33,2e23,2e13,2e12]
+id1 = 0: q = [s11,s22,s33,s23,s13,s12]
+```
+
+For `id1=1`, OpenSG calculates stress from the effective stiffness. For
+`id1=0`, it calculates strain from the effective compliance.
+
+### 13.4 Beam recovery
+
+OpenSG first recovers each beam's centerline displacement, rotation,
+generalized strain, and resultant in its local frame. It then calls VABS at
+the requested axial stations to obtain cross-section nodal displacement,
+strain, and stress.
+
+For Timoshenko beams, extension, two transverse shears, twist, and two bending
+components are recovered directly. For Euler--Bernoulli beams, extension,
+twist, and bending components are recovered from the Hermite field; transverse
+forces are obtained from the axial bending-moment gradients before VABS
+recovery. Both formulations therefore produce complete three-dimensional
+local fields.
+
+### 13.5 Junction recovery
+
+For junction flag 1, the supplied solid-junction mesh used during
+homogenization is reused. For junction flag 2, OpenSG reads the same-basename
+solid input associated with the `.kj` source. The generalized connection
+displacements are applied to that solid model, and OpenSG recovers nodal
+displacement, engineering strain, and Cauchy stress.
+
+The recovery solid currently supports TET4/TRI3 and TET10/TRI6. Its connection
+geometry must match the junction stiffness file. The solver never calls a
+Boolean operation or creates a solid mesh.
+
+### 13.6 Local output files
+
+`model.sc.u` contains one displacement record per recovered node:
+
+```text
+node_number u1 u2 u3
+```
+
+`model.sc.sn` contains coordinates followed by strain and stress:
+
+```text
+y1 y2 y3 e11 e22 e33 2e23 2e13 2e12 s11 s22 s33 s23 s13 s12
+```
+
+All vectors and tensors are written in the global SG coordinate system. Beam
+and junction records are combined in these files with consecutive output node
+numbers.
+
+### 13.7 Example post-processing
+
+The simple-cubic example separates solving from plotting. Its verification
+step writes pointwise Euler, Timoshenko, and SwiftComp centerline data. The
+plot is produced afterward with:
+
+```text
+python examples/simple_cubic_dehomogenization/plot_centerline.py
+```
+
+This plotting program is not imported by either solver.
+
+## 14. Input checks and common errors
 
 OpenSG validates the input before homogenization and reports the item that must
 be corrected.
@@ -759,6 +933,24 @@ If an interface is not planar, is not on the exterior of the solid mesh, or
 uses face connectivity inconsistent with the adjacent solid element, the
 solid-junction analysis stops before solving.
 
+### Missing flag-2 recovery mesh
+
+If `source.sc.kj` is referenced for a flag-2 junction, dehomogenization expects
+`source.sc` and `source.sc.msg` in the same directory. Generate or copy those
+inputs before running `3D L`; OpenSG does not create them during a solver run.
+
+### Missing beam recovery or VABS
+
+Every beam type used during dehomogenization requires one `BEAM_RECOVERY`
+record. Check that the referenced section file exists and that VABS can be
+found through `--vabs`, `VABS_EXE`, or the standard installation path.
+
+### Invalid global-field input
+
+An elastic 3D `.glb` file must contain exactly the displacement vector, nine
+deformation-matrix entries, `id1`, and six strain or stress entries. Check the
+component order in Section 13.3.
+
 ### Invalid junction stiffness
 
 A `.kj` matrix must have the declared dimensions, be symmetric, contain six
@@ -766,7 +958,7 @@ rigid modes, and contain no negative deformational modes. A mismatch usually
 means that the `.kj` file was paired with the wrong connection-point geometry
 or order.
 
-## 14. Recommended model-preparation procedure
+## 15. Recommended model-preparation procedure
 
 1. Choose one consistent unit system.
 2. Define the periodic SG box and its physical volume.
@@ -784,12 +976,17 @@ or order.
 9. Check that node-pair and image-shift translations span three directions.
 10. For flag 1, prepare TET4/TRI3 or TET10/TRI6 solid-junction meshes.
 11. For flag 2, verify that each `.kj` file uses exactly the declared connection
-    positions, frames, and order.
-12. Run OpenSG and inspect the `.ech` file before accepting the `.k` result.
-13. Check stiffness symmetry, positive eigenvalues, the mechanism indicator,
+    positions, frames, and order. For dehomogenization, retain its
+    same-basename `.sc/.sc.msg` solid input.
+12. Add one `BEAM_RECOVERY` VABS section source for every beam type that will
+    be dehomogenized.
+13. Prepare `model.sc.glb` using the component order in Section 13.3.
+14. Run `3D H` and inspect the `.ech` file before accepting the `.k` result.
+15. Check stiffness symmetry, positive eigenvalues, the mechanism indicator,
     and expected material/geometry symmetries.
+16. Run `3D L`, then inspect `.u` and `.sn` or use a separate plotting program.
 
-## 15. Preparing a new model from an example
+## 16. Preparing a new model from an example
 
 For a first user model, copy the example that is closest to the desired
 analysis:
