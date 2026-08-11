@@ -1,0 +1,74 @@
+#Use Runtime--> Change runtime type --> Select GPU/TPU
+
+# mount google drive to store OpenSG
+from google.colab import drive
+drive.mount('/content/drive')
+
+# Install conda 
+!pip install -q condacolab
+import condacolab
+condacolab.install()
+
+# Clone and install OpenSG
+git clone -b Akshat_msg_solid --single-branch https://github.com/bagla0/OpenSG_2.0.git
+cd /content/drive/MyDrive/OpenSG_2.0
+conda env create --file environment.yml
+!conda env create --file environment.yml
+
+#########################
+# Using notebook directly
+# Running on notebook
+!conda run -n opensg_2.0_env /bin/bash -c " \
+    export JAX_COMPILATION_CACHE_DIR=/content/drive/MyDrive/OpenSG_2.0/jax_cache; \
+    export JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0; \
+    export PYTHONPATH=\$PYTHONPATH:/content/drive/MyDrive/OpenSG_2.0; \
+    export MPLBACKEND=Agg; \
+    cd msg_akshat; \
+    python JAX_3dmodel_2D3D_finalized1.py"
+
+
+############################################
+#Using xterm (LINUX terminal in Collab)%%%%%%%%%%%%%%%%%%%%%%
+#############################################
+
+# 1. Install the terminal package
+import sys
+!{sys.executable} -m pip install colab-xterm
+
+# Load and launch
+%load_ext colabxterm
+%xterm
+
+## Once Black terminal opened 
+# 1. Initialize Conda and activate your env
+cd /content/drive/MyDrive/OpenSG_2.0
+cd /content/drive/MyDrive/Akshat/OpenSG_2.0
+conda env create --file environment.yml
+source /usr/local/etc/profile.d/conda.sh
+conda activate opensg_2.0_env
+cd msg_akshat
+
+
+# 2. Set the Cache Directory (Create it if it doesn't exist)
+export JAX_COMPILATION_CACHE_DIR=/content/drive/MyDrive/OpenSG_2.0/jax_cache
+mkdir -p $JAX_COMPILATION_CACHE_DIR
+
+# 3. Force JAX to use the cache for every single function
+export JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0
+
+# 4. Set your existing Python paths
+export PYTHONPATH=$PYTHONPATH:/content/drive/MyDrive/OpenSG_2.0
+export MPLBACKEND=Agg
+cd drive/MyDrive/OpenSG_2.0/msg_akshat
+
+#Close xterm
+!pkill -f xterm
+!pkill -f terminal
+
+# TPU work:
+pip uninstall -y jax jaxlib jax-cuda12-plugin jax-cuda12-pjrt
+pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+python -c "import jax; print(jax.devices())"
+
+#Silence warn:
+sudo sh -c "echo always > /sys/kernel/mm/transparent_hugepage/enabled"

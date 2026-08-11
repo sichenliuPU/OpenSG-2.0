@@ -1,0 +1,29 @@
+name: opensg_2.0_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy>=1.20.0
+  - scipy>=1.7.0
+  - mpi4py>=3.0.0
+  - meshio
+  - petsc4py
+  - pyyaml>=5.4.0
+  - fenics-dolfinx>=0.9.0
+  - fenics-basix>=0.9.0
+  - fenics-ufl
+  - fenics-ffcx>=0.9.0
+  - mpich 
+  - pip
+  - jax
+  - jax[cuda12]
+  - jaxlib
+  - jaxopt
+  - igl
+  - matplotlib
+  - fenics-basix
+  - psutil
+  - numba
+  - pip:
+    - gmsh
+    - -e .
