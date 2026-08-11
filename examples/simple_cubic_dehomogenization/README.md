@@ -17,6 +17,13 @@ python examples\simple_cubic_dehomogenization\plot_centerline.py
 
 The junction portion uses actual C3D20 nodes at the SwiftComp centerline
 coordinates. The beam portion uses VABS cross-section-center recovery.
+At the junction--beam connection, the plotted value is the arithmetic mean of
+the independently recovered junction-side and beam-side stresses. Print both
+one-sided values and their average with:
+
+```powershell
+python examples\simple_cubic_dehomogenization\verify_dehomogenization.py --interface-comparison
+```
 
 All numerical inputs used by the comparison are stored under `inputs/` and
 `reference/`. The script does not read files outside this example directory.

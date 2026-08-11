@@ -74,6 +74,7 @@ def _write_line_comparison(
     output_directory.mkdir(parents=True, exist_ok=True)
     csv_path = output_directory / "simple_cubic_plus_x_stress_line.csv"
     component_names = tuple(SWIFTCOMP_COLUMNS)
+    connection_index = int(np.flatnonzero(junction_mask)[-1])
     with csv_path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
         writer.writerow([
@@ -91,7 +92,11 @@ def _write_line_comparison(
             ]
             writer.writerow([
                 coordinate,
-                "junction" if junction_mask[index] else "beam",
+                (
+                    "connection"
+                    if index == connection_index
+                    else "junction" if junction_mask[index] else "beam"
+                ),
                 *ordered_reference,
                 *[
                     predictions[theory][index, SWIFTCOMP_COLUMNS[name]]
@@ -282,6 +287,11 @@ def run_comparison(
                 prediction[~junction_mask, component] = np.interp(
                     x_reference[~junction_mask], beam_x, beam_stress[:, component]
                 )
+            connection_index = int(np.flatnonzero(junction_mask)[-1])
+            beam_connection_index = int(np.argmin(np.abs(beam_x - 0.015)))
+            prediction[connection_index] = 0.5 * (
+                junction_stress[-1] + beam_stress[beam_connection_index]
+            )
             predictions[theory] = prediction
 
     destination = output_directory or (
@@ -294,6 +304,68 @@ def run_comparison(
         reference_stress,
         predictions,
     )
+
+
+def run_interface_comparison(
+    vabs: Path | None = None,
+    stations: int = 11,
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Recover junction- and beam-side stress at the same interface point."""
+
+    recovery = build_simple_cubic_c3d20_recovery(
+        np.asarray([point.frame for point in _connection_points()]),
+        side=0.01,
+        stub_length=0.01,
+        young=70.0e9,
+        poisson=0.3,
+        elements_per_side=4,
+    )
+    comparison = {}
+    with tempfile.TemporaryDirectory(prefix="opensg_sc_interface_") as directory_name:
+        directory = Path(directory_name)
+        for theory in ("Euler", "Timoshenko"):
+            input_path = _write_model(directory, VABS_SECTION, theory)
+            model, supplement, result = homogenize(input_path)
+            global_fields = read_global_fields(
+                Path(str(input_path) + ".glb"),
+                result.effective_stiffness,
+                result.effective_compliance,
+            )
+            local_fields = dehomogenize(
+                model,
+                supplement,
+                result,
+                global_fields,
+                stations=stations,
+                executable=vabs,
+            )
+            beam_x, beam_stress = _beam_centerline_stress(local_fields, 1)
+            beam_index = int(np.argmin(np.abs(beam_x - 0.015)))
+            if not np.isclose(beam_x[beam_index], 0.015, rtol=0.0, atol=1.0e-12):
+                raise RuntimeError("The beam recovery has no station at x=0.015.")
+
+            assembly = result.junction_assemblies[0]
+            junction_displacement = (
+                assembly.b_epsilon - assembly.b_v @ result.full_fluctuation
+            ) @ global_fields.strain
+            junction_x, junction_stress = recover_c3d20_centerline_stress(
+                recovery,
+                junction_displacement,
+                young=70.0e9,
+                poisson=0.3,
+                x_min=0.0,
+                x_max=0.015,
+            )
+            junction_index = int(np.argmin(np.abs(junction_x - 0.015)))
+            if not np.isclose(
+                junction_x[junction_index], 0.015, rtol=0.0, atol=1.0e-12
+            ):
+                raise RuntimeError("The junction mesh has no node at x=0.015.")
+            comparison[theory] = (
+                junction_stress[junction_index],
+                beam_stress[beam_index],
+            )
+    return comparison
 
 
 def run_cli_smoke(vabs: Path | None = None) -> dict[str, tuple[int, int]]:
@@ -342,6 +414,7 @@ def main() -> None:
     parser.add_argument("--vabs", type=Path, default=None)
     parser.add_argument("--stations", type=int, default=11)
     parser.add_argument("--cli-smoke", action="store_true")
+    parser.add_argument("--interface-comparison", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=None)
     arguments = parser.parse_args()
     if arguments.cli_smoke:
@@ -350,6 +423,25 @@ def main() -> None:
         ).items():
             print(f"{theory}_u_rows={displacement_rows}")
             print(f"{theory}_sn_rows={nodal_rows}")
+        return
+    if arguments.interface_comparison:
+        print(
+            "theory component junction_MPa beam_MPa average_MPa "
+            "beam_minus_junction_MPa"
+        )
+        components = ("S11", "S22", "S33", "S23", "S13", "S12")
+        for theory, (junction, beam) in run_interface_comparison(
+            arguments.vabs, arguments.stations
+        ).items():
+            for component, junction_value, beam_value in zip(
+                components, junction / 1.0e6, beam / 1.0e6, strict=True
+            ):
+                print(
+                    f"{theory} {component} {junction_value:.10e} "
+                    f"{beam_value:.10e} "
+                    f"{0.5 * (junction_value + beam_value):.10e} "
+                    f"{beam_value - junction_value:.10e}"
+                )
         return
     csv_path = run_comparison(
         arguments.vabs, arguments.stations, arguments.output_dir
