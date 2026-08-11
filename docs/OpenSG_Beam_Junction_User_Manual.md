@@ -889,10 +889,14 @@ numbers.
 ### 13.7 Example post-processing
 
 The simple-cubic example separates solving from plotting. Its verification
-step writes pointwise Euler, Timoshenko, and SwiftComp centerline data. The
-plot is produced afterward with:
+step runs Euler and Timoshenko through the public homogenization and
+dehomogenization interfaces, then writes pointwise OpenSG and SwiftComp
+centerline data. Its VABS section, global fields, and SwiftComp reference data
+are stored inside the example directory. Run the comparison and produce the
+plot afterward with:
 
 ```text
+python examples/simple_cubic_dehomogenization/verify_dehomogenization.py
 python examples/simple_cubic_dehomogenization/plot_centerline.py
 ```
 

@@ -63,6 +63,24 @@ class TestSolverPackageBoundary(unittest.TestCase):
         )
         self.assertTrue((self.root / "tools" / "junction_boolean.py").is_file())
 
+    def test_simple_cubic_example_is_self_contained(self):
+        example = self.root / "examples" / "simple_cubic_dehomogenization"
+        source = (example / "verify_dehomogenization.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("from fe_jax import LocalFields, dehomogenize", source)
+        self.assertNotIn("recover_beam_states", source)
+        self.assertNotIn("recover_vabs_fields", source)
+        self.assertNotIn("parents[3]", source)
+        for path in (
+            example / "inputs" / "square0.sg",
+            example / "inputs" / "simple_cubic.glb",
+            example
+            / "reference"
+            / "cross_nSG3_3D_C3D20Rpbc_nodal_stress.csv",
+        ):
+            self.assertTrue(path.is_file(), f"Missing example input: {path}")
+
 
 if __name__ == "__main__":
     unittest.main()
