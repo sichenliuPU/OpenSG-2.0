@@ -12,6 +12,14 @@ import numpy as np
 
 
 COMPONENTS = ("S11", "S22", "S33", "S23", "S13", "S12")
+COMPONENT_LABELS = {
+    "S11": r"$\sigma_{11}$",
+    "S22": r"$\sigma_{22}$",
+    "S33": r"$\sigma_{33}$",
+    "S23": r"$\sigma_{23}$",
+    "S13": r"$\sigma_{13}$",
+    "S12": r"$\sigma_{12}$",
+}
 
 
 def plot_centerline_components(
@@ -53,8 +61,8 @@ def plot_centerline_components(
             zorder=4,
         )
         axis.axvline(0.015, color="0.4", linestyle="--", linewidth=1.0)
-        axis.set_xlabel("x along the junction-center to +X-beam line")
-        axis.set_ylabel(f"{component} (MPa)")
+        axis.set_xlabel(r"$x$")
+        axis.set_ylabel(f"{COMPONENT_LABELS[component]} (MPa)")
         axis.grid(alpha=0.2)
         handles, labels = axis.get_legend_handles_labels()
         order = [
