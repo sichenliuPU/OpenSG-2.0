@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 from fe_jax.junction import read_junction_stiffness
-from fe_jax.junction_boolean import (
+from junction_boolean import (
     build_boolean_junction,
     write_solid_junction_input,
 )

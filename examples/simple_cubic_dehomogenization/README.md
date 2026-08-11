@@ -4,7 +4,7 @@ The solver verification writes pointwise Euler, Timoshenko, and SwiftComp
 centerline values without importing any plotting package:
 
 ```powershell
-python tests\verify_simple_cubic_dehomogenization.py
+python examples\simple_cubic_dehomogenization\verify_dehomogenization.py
 ```
 
 Plotting is a separate example post-processing step:

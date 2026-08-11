@@ -4,19 +4,11 @@ import unittest
 
 import numpy as np
 
-from fe_jax.beam import beam_frame
 from fe_jax.dehomogenization import recover_beam_states
 from fe_jax.dehomogenization import _junction_solid_source
 from fe_jax.hybrid_homogenization import homogenize
-from fe_jax.junction import JunctionConnectionPoint
-from fe_jax.junction_boolean import (
-    build_boolean_junction,
-    write_solid_junction_input,
-)
-from fe_jax.junction_c3d20 import build_simple_cubic_c3d20_mesh
-from fe_jax.junction_solid import analyze_junction
 from fe_jax.sc_glb_input import GlobalFields, read_global_fields
-from fe_jax.sc_hybrid_input import read_hybrid_supplement, read_solid_junction
+from fe_jax.sc_hybrid_input import read_hybrid_supplement
 from fe_jax.sc_local_output import write_local_outputs
 from fe_jax.dehomogenization import LocalFields
 
@@ -66,54 +58,6 @@ class TestDehomogenization(unittest.TestCase):
             solid.write_text("solid")
             Path(str(solid) + ".msg").write_text("interfaces")
             self.assertEqual(_junction_solid_source(stiffness), solid)
-
-    def test_boolean_junction_linear_and_quadratic(self):
-        directions = np.vstack((np.eye(3), -np.eye(3)))
-        connection_points = []
-        for identifier, direction in enumerate(directions, start=1):
-            trial = (
-                np.array([0.0, 0.0, 1.0])
-                if abs(direction[2]) < 0.9 else np.array([0.0, 1.0, 0.0])
-            )
-            frame = beam_frame(np.zeros(3), direction, trial)
-            connection_points.append(JunctionConnectionPoint(
-                identifier, 0.015 * direction, frame
-            ))
-        for element_flag, number_of_nodes in ((0, 4), (1, 10)):
-            model = build_boolean_junction(
-                tuple(connection_points), "square", 0.005, 0.006,
-                element_flag, 1, (70.0e9, 0.3),
-            )
-            self.assertTrue(all(len(element) == number_of_nodes for element in model.elements))
-            solution = analyze_junction(model)
-            self.assertEqual(solution.stiffness.matrix.shape, (36, 36))
-            self.assertEqual(solution.displacement_recovery.shape[1], 36)
-            with tempfile.TemporaryDirectory() as directory:
-                path = Path(directory) / "junction.sc"
-                write_solid_junction_input(path, model)
-                reloaded = read_solid_junction(path)
-            self.assertEqual(len(reloaded.elements), len(model.elements))
-            self.assertEqual(
-                len(reloaded.connection_points), len(model.connection_points)
-            )
-
-    def test_c3d20_simple_cubic_has_exact_centerline_nodes(self):
-        mesh = build_simple_cubic_c3d20_mesh(
-            side=0.01, stub_length=0.01, elements_per_side=4
-        )
-        tolerance = 1.0e-12
-        mask = (
-            (mesh.nodes[:, 0] >= -tolerance)
-            & (mesh.nodes[:, 0] <= 0.015 + tolerance)
-            & (np.abs(mesh.nodes[:, 1]) <= tolerance)
-            & (np.abs(mesh.nodes[:, 2]) <= tolerance)
-        )
-        centerline = np.sort(mesh.nodes[mask, 0])
-        np.testing.assert_allclose(
-            centerline, np.arange(0.0, 0.015 + 0.000625, 0.00125),
-            rtol=0.0, atol=tolerance,
-        )
-        self.assertEqual(mesh.elements.shape[1], 20)
 
     def test_uniform_extension_beam_state(self):
         path = self.examples / "rigid_timoshenko_cross.sc"

@@ -1,4 +1,4 @@
-"""End-to-end simple-cubic localization comparison with SwiftComp fields."""
+"""Example-specific simple-cubic comparison with SwiftComp fields."""
 
 from __future__ import annotations
 
@@ -12,6 +12,10 @@ import tempfile
 import numpy as np
 from scipy.interpolate import LinearNDInterpolator
 
+OPENSG_ROOT = Path(__file__).parents[2]
+if str(OPENSG_ROOT) not in sys.path:
+    sys.path.insert(0, str(OPENSG_ROOT))
+
 from fe_jax.beam import beam_frame
 from fe_jax.dehomogenization import (
     recover_beam_states,
@@ -19,11 +23,11 @@ from fe_jax.dehomogenization import (
 )
 from fe_jax.hybrid_homogenization import homogenize
 from fe_jax.junction import JunctionConnectionPoint, write_junction_stiffness
-from fe_jax.junction_boolean import (
+from tools.junction_boolean import (
     build_boolean_junction,
     write_solid_junction_input,
 )
-from fe_jax.junction_c3d20 import (
+from c3d20_recovery import (
     build_simple_cubic_c3d20_recovery,
     recover_c3d20_centerline_stress,
 )
@@ -31,7 +35,7 @@ from fe_jax.junction_solid import analyze_junction
 from fe_jax.sc_glb_input import read_global_fields
 
 
-ROOT = Path(__file__).parents[2]
+ROOT = Path(__file__).parents[3]
 DIRECTIONS = np.vstack((np.eye(3), -np.eye(3)))[[0, 3, 1, 4, 2, 5]]
 TRANSVERSE = np.array([
     [0.0, 1.0, 0.0], [0.0, 0.0, 1.0],
@@ -265,10 +269,7 @@ def run_comparison(
             predictions[theory] = prediction
 
     destination = output_directory or (
-        Path(__file__).parents[1]
-        / "examples"
-        / "simple_cubic_dehomogenization"
-        / "results"
+        Path(__file__).parent / "results"
     )
     return _write_line_comparison(
         destination,
@@ -291,8 +292,8 @@ def run_cli_smoke(vabs: Path | None = None) -> tuple[int, int]:
         command = [*base, "L", "--stations", "2"]
         if vabs is not None:
             command.extend(("--vabs", str(vabs)))
-        subprocess.run(command, check=True, cwd=Path(__file__).parents[1])
-        subprocess.run([*base, "H"], check=True, cwd=Path(__file__).parents[1])
+        subprocess.run(command, check=True, cwd=OPENSG_ROOT)
+        subprocess.run([*base, "H"], check=True, cwd=OPENSG_ROOT)
         displacement_lines = Path(str(input_path) + ".u").read_text().splitlines()
         nodal_lines = Path(str(input_path) + ".sn").read_text().splitlines()
         if not displacement_lines or not nodal_lines:

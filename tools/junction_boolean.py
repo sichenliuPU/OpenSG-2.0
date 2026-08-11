@@ -1,7 +1,4 @@
-"""Optional preprocessing utility for solid-junction input generation.
-
-The homogenization and localization solvers do not import this module.
-"""
+"""Optional preprocessing utility for solid-junction input generation."""
 
 from __future__ import annotations
 
@@ -10,9 +7,9 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from .beam import FloatArray, IntArray
-from .junction import JunctionConnectionPoint
-from .junction_solid import SolidJunctionModel
+from fe_jax.beam import FloatArray, IntArray
+from fe_jax.junction import JunctionConnectionPoint
+from fe_jax.junction_solid import SolidJunctionModel
 
 
 def _triangle_area(coordinates: FloatArray) -> float:

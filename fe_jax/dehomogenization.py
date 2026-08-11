@@ -363,7 +363,7 @@ def recover_junction_fields(
     result: HomogenizationResult,
     fields: GlobalFields,
 ) -> list[LocalFields]:
-    """Rebuild missing junction meshes and recover their three-dimensional fields."""
+    """Read supplied junction solids and recover their three-dimensional fields."""
 
     if not result.junction_assemblies:
         return []

@@ -1,4 +1,4 @@
-"""Simple-cubic C3D20 verification support, separate from solver workflows."""
+"""Example-specific C3D20 recovery for the simple-cubic comparison."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import numpy as np
 from scipy import sparse
 from scipy.sparse import linalg as sparse_linalg
 
-from .beam import FloatArray, IntArray
+from fe_jax.beam import FloatArray, IntArray
 
 
 _CORNER_SIGNS = np.array([
