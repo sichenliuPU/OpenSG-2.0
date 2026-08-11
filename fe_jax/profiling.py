@@ -1,7 +1,6 @@
 import threading
 import psutil
 import time
-import matplotlib.pyplot as plt
 import numpy as np
 import subprocess
 import re
@@ -171,6 +170,8 @@ def timeit(
 
 
 def get_colors_from_cmap(cmap_name, num_colors):
+    import matplotlib.pyplot as plt
+
     cmap = plt.get_cmap(cmap_name)
     return [cmap(x) for x in np.linspace(0, 1, num_colors)]
 
@@ -222,6 +223,7 @@ class CPUPoll:
         time.sleep(1.2 * self.sampling_time)
 
     def get_plt_fig(self, ax=None, legend=True):
+        import matplotlib.pyplot as plt
 
         if ax is None:
             fig, ax1 = plt.subplots()

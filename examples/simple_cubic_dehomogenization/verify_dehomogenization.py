@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -285,15 +287,24 @@ def run_cli_smoke(vabs: Path | None = None) -> tuple[int, int]:
 
     vabs_source = ROOT / "VABS" / "simple cubic" / "square0.sg"
     with tempfile.TemporaryDirectory(prefix="opensg_sc_cli_") as directory_name:
+        directory = Path(directory_name)
+        local_vabs_source = directory / vabs_source.name
+        shutil.copyfile(vabs_source, local_vabs_source)
         input_path = _write_model(
-            Path(directory_name), vabs_source, "Timoshenko"
+            directory, Path(local_vabs_source.name), "Timoshenko"
         )
         base = [sys.executable, "-m", "fe_jax.opensg", str(input_path), "3D"]
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = os.pathsep.join(filter(None, (
+            str(OPENSG_ROOT), environment.get("PYTHONPATH", "")
+        )))
         command = [*base, "L", "--stations", "2"]
         if vabs is not None:
             command.extend(("--vabs", str(vabs)))
-        subprocess.run(command, check=True, cwd=OPENSG_ROOT)
-        subprocess.run([*base, "H"], check=True, cwd=OPENSG_ROOT)
+        subprocess.run(command, check=True, cwd=directory, env=environment)
+        subprocess.run(
+            [*base, "H"], check=True, cwd=directory, env=environment
+        )
         displacement_lines = Path(str(input_path) + ".u").read_text().splitlines()
         nodal_lines = Path(str(input_path) + ".sn").read_text().splitlines()
         if not displacement_lines or not nodal_lines:

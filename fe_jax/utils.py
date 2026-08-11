@@ -1,4 +1,3 @@
-from .profiling import *
 from .np_types import *
 
 import jax

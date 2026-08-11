@@ -76,6 +76,15 @@ python -m pip install -e .
 Python 3.11 or later is required. The environment must contain the dependencies
 listed in `pyproject.toml`.
 
+The homogenization and dehomogenization solvers do not require Gmsh or
+Matplotlib when users supply their own meshes. Install optional preprocessing
+or example dependencies only when needed:
+
+```text
+python -m pip install -e ".[input-builders]"
+python -m pip install -e ".[examples]"
+```
+
 Run a three-dimensional homogenization with:
 
 ```text
@@ -806,7 +815,8 @@ BEAM_RECOVERY 2 sections/tube.sg
 
 Relative paths are interpreted relative to `model.sc.msg`. The VABS executable
 is selected by `--vabs PATH`, the `VABS_EXE` environment variable, or the
-standard Windows VABS installation path, in that order.
+system `PATH`, in that order. The standard Windows VABS installation path is a
+final fallback.
 
 ### 13.3 Global-field file: `model.sc.glb`
 
@@ -887,6 +897,40 @@ python examples/simple_cubic_dehomogenization/plot_centerline.py
 ```
 
 This plotting program is not imported by either solver.
+
+### 13.8 Reusable Python API
+
+The same workflow is available without the command-line dispatcher:
+
+```python
+from pathlib import Path
+from fe_jax import (
+    dehomogenize,
+    homogenize,
+    read_global_fields,
+    write_local_outputs,
+)
+
+input_path = Path("model.sc")
+model, supplement, result = homogenize(input_path)
+global_fields = read_global_fields(
+    Path(str(input_path) + ".glb"),
+    result.effective_stiffness,
+    result.effective_compliance,
+)
+local_fields = dehomogenize(
+    model,
+    supplement,
+    result,
+    global_fields,
+    stations=3,
+    executable="/path/to/VABS",
+)
+write_local_outputs(input_path, local_fields)
+```
+
+All paths come from the caller or the supplied input files. The API does not
+load any example geometry or generate a junction mesh.
 
 ## 14. Input checks and common errors
 

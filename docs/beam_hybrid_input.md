@@ -34,6 +34,10 @@ Geometry builders are optional preprocessing tools. For example,
 `.sc/.sc.msg` pair. Plotting under `examples/` is optional post-processing and
 is not loaded by either solver.
 
+Gmsh is therefore an optional `input-builders` dependency, and Matplotlib is
+an optional `examples` dependency. Neither is required when users provide all
+solver inputs and consume the text outputs directly.
+
 The first input record accepts an optional fifth control value:
 
 ```text

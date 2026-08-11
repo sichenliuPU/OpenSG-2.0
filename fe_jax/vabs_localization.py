@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 import numpy as np
@@ -85,10 +86,16 @@ def _resolve_executable(executable: str | Path | None) -> Path:
     elif os.environ.get("VABS_EXE"):
         result = Path(os.environ["VABS_EXE"])
     else:
-        result = Path(r"C:\Program Files (x86)\VABS\Windows 4.0\VABS.exe")
+        discovered = shutil.which("VABS") or shutil.which("vabs")
+        result = (
+            Path(discovered)
+            if discovered is not None
+            else Path(r"C:\Program Files (x86)\VABS\Windows 4.0\VABS.exe")
+        )
     if not result.exists():
         raise FileNotFoundError(
-            f"VABS executable was not found: {result}. Set VABS_EXE or use --vabs."
+            f"VABS executable was not found: {result}. Use --vabs, set VABS_EXE, "
+            "or add VABS to PATH."
         )
     return result
 
