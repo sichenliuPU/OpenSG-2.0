@@ -44,18 +44,19 @@ def global_file_text(
     rotation: FloatArray,
     resultants: FloatArray,
 ) -> str:
-    """Create a shearable VABS global-fields file."""
+    """Create a VABS global-fields file from [F1,F2,F3,M1,M2,M3]."""
 
     values = np.asarray(resultants, dtype=float).reshape(-1)
     if values.shape != (6,):
-        raise ValueError("VABS beam resultants must be [N,Q2,Q3,T,M2,M3].")
+        raise ValueError("VABS beam stress resultants must be [F1,F2,F3,M1,M2,M3].")
+    f1, f2, f3, m1, m2, m3 = values
     rows = [" ".join(f"{value:.16e}" for value in displacement)]
     rows.extend(
         " ".join(f"{value:.16e}" for value in row)
         for row in rotation_matrix(rotation)
     )
-    rows.append(" ".join(f"{values[index]:.16e}" for index in (0, 3, 4, 5)))
-    rows.append(" ".join(f"{values[index]:.16e}" for index in (1, 2)))
+    rows.append(" ".join(f"{value:.16e}" for value in (f1, m1, m2, m3)))
+    rows.append(" ".join(f"{value:.16e}" for value in (f2, f3)))
     rows.extend(["0 0 0 0 0 0"] * 4)
     return "\n".join(rows) + "\n\n"
 

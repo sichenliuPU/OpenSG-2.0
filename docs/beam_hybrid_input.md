@@ -133,6 +133,10 @@ beam type with the VABS section used to obtain its three-dimensional fields:
 BEAM_RECOVERY beam_type_id vabs_section_source
 ```
 
+Beam stress resultants passed to VABS use the local ordering
+`[F1,F2,F3,M1,M2,M3]`: three force components followed by three moment
+components.
+
 For a junction type whose homogenization record uses a reusable `.kj` file,
 localization automatically requires a solid input with the same basename:
 

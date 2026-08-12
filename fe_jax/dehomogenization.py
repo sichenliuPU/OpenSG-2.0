@@ -49,6 +49,8 @@ class LocalFields:
 
 @dataclass(frozen=True)
 class BeamStationState:
+    """Recovered beam state with stress resultants [F1,F2,F3,M1,M2,M3]."""
+
     element_id: int
     beam_type_id: int
     xi: float

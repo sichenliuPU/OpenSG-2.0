@@ -11,6 +11,7 @@ from fe_jax.sc_glb_input import GlobalFields, read_global_fields
 from fe_jax.sc_hybrid_input import read_hybrid_supplement
 from fe_jax.sc_local_output import write_local_outputs
 from fe_jax.dehomogenization import LocalFields
+from fe_jax.vabs_localization import global_file_text
 
 
 class TestDehomogenization(unittest.TestCase):
@@ -47,6 +48,17 @@ class TestDehomogenization(unittest.TestCase):
             path.write_text(source)
             supplement = read_hybrid_supplement(path)
         self.assertEqual(supplement.beam_recovery[1].source.name, "section.sg")
+
+    def test_vabs_stress_resultant_order(self):
+        lines = global_file_text(
+            np.zeros(3), np.zeros(3), np.arange(1.0, 7.0)
+        ).splitlines()
+        np.testing.assert_allclose(
+            np.fromstring(lines[4], sep=" "), [1.0, 4.0, 5.0, 6.0]
+        )
+        np.testing.assert_allclose(
+            np.fromstring(lines[5], sep=" "), [2.0, 3.0]
+        )
 
     def test_mode2_requires_same_basename_junction_mesh(self):
         with tempfile.TemporaryDirectory() as directory:

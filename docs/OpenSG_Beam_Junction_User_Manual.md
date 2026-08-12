@@ -845,14 +845,22 @@ For `id1=1`, OpenSG calculates stress from the effective stiffness. For
 ### 13.4 Beam recovery
 
 OpenSG first recovers each beam's centerline displacement, rotation,
-generalized strain, and resultant in its local frame. It then calls VABS at
-the requested axial stations to obtain cross-section nodal displacement,
-strain, and stress.
+generalized strain, and stress-resultant vector in its local frame. The stress
+resultants use the ordering
+
+```text
+[F1, F2, F3, M1, M2, M3]
+```
+
+where `F1,F2,F3` are the local force components and `M1,M2,M3` are the local
+moment components. OpenSG then calls VABS at the requested axial stations to
+obtain cross-section nodal displacement, strain, and stress.
 
 For Timoshenko beams, extension, two transverse shears, twist, and two bending
 components are recovered directly. For Euler--Bernoulli beams, extension,
 twist, and bending components are recovered from the Hermite field; transverse
-forces are obtained from the axial bending-moment gradients before VABS
+force components `F2,F3` are obtained from the axial gradients of `M2,M3`
+before VABS
 recovery. Both formulations therefore produce complete three-dimensional
 local fields.
 
