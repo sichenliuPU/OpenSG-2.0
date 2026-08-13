@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import shlex
 
@@ -21,6 +21,7 @@ from .junction import (
     JunctionConnection,
     JunctionConnectionPoint,
     JunctionInstance,
+    JunctionStiffness,
     JunctionType,
 )
 from .junction_solid import SolidJunctionModel
@@ -67,6 +68,18 @@ class BeamRecovery:
 
     beam_type_id: int
     source: Path
+
+
+@dataclass(frozen=True)
+class PeriodicOwnershipAudit:
+    """Counts and mappings created by automatic periodic object ownership."""
+
+    input_beams: int
+    owned_beams: int
+    input_junctions: int
+    owned_junctions: int
+    beam_owner_by_id: dict[int, int]
+    junction_owner_by_id: dict[int, int]
 
 
 def _data_lines(path: Path) -> list[str]:
@@ -130,6 +143,327 @@ def _periodic_representatives(
     return [root(node) for node in range(number_of_nodes)]
 
 
+def _periodic_box(nodes: FloatArray) -> tuple[FloatArray, FloatArray, float]:
+    minimum = np.min(nodes, axis=0)
+    periods = np.ptp(nodes, axis=0)
+    scale = max(float(np.max(periods)), 1.0)
+    tolerance = 1.0e-8 * scale
+    return minimum, periods, tolerance
+
+
+def _canonical_point(
+    point: FloatArray,
+    minimum: FloatArray,
+    periods: FloatArray,
+    tolerance: float,
+) -> tuple[FloatArray, tuple[int, int, int]]:
+    """Return a point modulo the SG periods and its integer image index."""
+
+    canonical = np.asarray(point, dtype=float).copy()
+    image = np.zeros(3, dtype=int)
+    for axis, period in enumerate(periods):
+        if period <= tolerance:
+            continue
+        coordinate = (point[axis] - minimum[axis]) / period
+        integer = int(np.floor(coordinate + tolerance / period))
+        fraction = coordinate - integer
+        if np.isclose(fraction, 1.0, rtol=0.0, atol=tolerance / period):
+            integer += 1
+            fraction = 0.0
+        if np.isclose(fraction, 0.0, rtol=0.0, atol=tolerance / period):
+            fraction = 0.0
+        canonical[axis] = minimum[axis] + fraction * period
+        image[axis] = integer
+    return canonical, tuple(int(value) for value in image)
+
+
+def _quantized(values: FloatArray, tolerance: float) -> tuple[int, ...]:
+    return tuple(np.rint(np.asarray(values).ravel() / tolerance).astype(np.int64))
+
+
+def _beam_frame_for_input(
+    model: StructuralGenomeInput, element_id: int, node_ids: IntArray
+) -> FloatArray:
+    frame = model.orientations.get(element_id)
+    if frame is not None:
+        return frame
+    start, end = model.nodes[node_ids[0]], model.nodes[node_ids[1]]
+    trial = np.array([0.0, 0.0, 1.0])
+    direction = (end - start) / np.linalg.norm(end - start)
+    if abs(float(direction @ trial)) > 0.9:
+        trial = np.array([0.0, 1.0, 0.0])
+    return beam_frame(start, end, trial)
+
+
+def apply_periodic_ownership(
+    model: StructuralGenomeInput,
+    supplement: HybridSupplement,
+) -> tuple[StructuralGenomeInput, HybridSupplement, PeriodicOwnershipAudit]:
+    """Keep one complete beam and junction from every periodic image orbit.
+
+    Object ownership is separate from nodal periodic reduction: tying image
+    DOFs with ``P`` does not remove the stiffness of duplicate full-section
+    beams or complete junctions.  This preprocessing stage selects the image
+    on the lexicographically minimum representative face/edge/corner and
+    rewrites all junction connections to that owned image.
+    """
+
+    minimum, periods, tolerance = _periodic_box(model.nodes)
+    beam_records: dict[tuple, dict[tuple[int, int, int], list[int]]] = {}
+    element_index = {
+        int(identifier): index for index, identifier in enumerate(model.element_ids)
+    }
+    for index, (identifier_value, node_ids) in enumerate(
+        zip(model.element_ids, model.connectivity, strict=True)
+    ):
+        identifier = int(identifier_value)
+        start = model.nodes[int(node_ids[0])]
+        end = model.nodes[int(node_ids[1])]
+        canonical_start, image = _canonical_point(
+            start, minimum, periods, tolerance
+        )
+        vector = end - start
+        frame = _beam_frame_for_input(model, identifier, node_ids)
+        beam_type_id = supplement.beam_assignments.get(identifier)
+        beam_type = supplement.beam_types.get(beam_type_id)
+        beam_type_key = (
+            (int(beam_type.theory), beam_type.number_of_nodes,
+             _quantized(beam_type.section_stiffness, tolerance))
+            if beam_type is not None else ("undefined", beam_type_id)
+        )
+        key = (
+            _quantized(canonical_start, tolerance),
+            _quantized(vector, tolerance),
+            _quantized(frame, tolerance),
+            int(model.material_ids[index]),
+            beam_type_key,
+        )
+        beam_records.setdefault(key, {}).setdefault(image, []).append(identifier)
+
+    beam_owner: dict[int, tuple[int, FloatArray]] = {}
+    owned_beam_ids: set[int] = set()
+    for images in beam_records.values():
+        multiplicities = {len(identifiers) for identifiers in images.values()}
+        if len(multiplicities) != 1:
+            raise ValueError(
+                "Periodic images of a beam have inconsistent multiplicities; "
+                "OpenSG cannot choose ownership without changing the model."
+            )
+        owner_image = min(images)
+        owners = sorted(images[owner_image])
+        owned_beam_ids.update(owners)
+        for image, identifiers in images.items():
+            translation = periods * (np.asarray(image) - np.asarray(owner_image))
+            for identifier, owner in zip(sorted(identifiers), owners, strict=True):
+                beam_owner[identifier] = (owner, translation)
+
+    junction_records: dict[tuple, dict[tuple[int, int, int], list[int]]] = {}
+    for identifier, instance in supplement.junction_instances.items():
+        canonical_origin, image = _canonical_point(
+            instance.origin, minimum, periods, tolerance
+        )
+        key = (
+            _quantized(canonical_origin, tolerance),
+            _quantized(instance.frame, tolerance),
+            int(instance.junction_type_id),
+        )
+        junction_records.setdefault(key, {}).setdefault(image, []).append(identifier)
+
+    junction_owner: dict[int, tuple[int, FloatArray]] = {}
+    owned_junction_ids: set[int] = set()
+    for images in junction_records.values():
+        multiplicities = {len(identifiers) for identifiers in images.values()}
+        if len(multiplicities) != 1:
+            raise ValueError(
+                "Periodic images of a junction have inconsistent multiplicities; "
+                "use the same complete junction type on each represented image."
+            )
+        owner_image = min(images)
+        owners = sorted(images[owner_image])
+        owned_junction_ids.update(owners)
+        for image, identifiers in images.items():
+            translation = periods * (np.asarray(image) - np.asarray(owner_image))
+            for identifier, owner in zip(sorted(identifiers), owners, strict=True):
+                junction_owner[identifier] = (owner, translation)
+
+    automatic_pairs = list(model.periodic_pairs)
+    parent = list(range(len(model.nodes)))
+
+    def root(node: int) -> int:
+        while parent[node] != node:
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        return node
+
+    def identify(first: int, second: int) -> None:
+        first_root, second_root = root(first), root(second)
+        if first_root != second_root:
+            parent[first_root] = second_root
+
+    for slave, master in automatic_pairs:
+        identify(slave, master)
+    for identifier, (owner, _translation) in beam_owner.items():
+        if identifier == owner:
+            continue
+        image_nodes = model.connectivity[element_index[identifier]]
+        owner_nodes = model.connectivity[element_index[owner]]
+        for image_node, owner_node in zip(image_nodes, owner_nodes, strict=True):
+            image_node, owner_node = int(image_node), int(owner_node)
+            if root(image_node) != root(owner_node):
+                automatic_pairs.append((image_node, owner_node))
+                identify(image_node, owner_node)
+
+    kept_indices = [
+        index for index, identifier in enumerate(model.element_ids)
+        if int(identifier) in owned_beam_ids
+    ]
+    owned_model = replace(
+        model,
+        element_ids=np.asarray(model.element_ids[kept_indices], dtype=np.int64),
+        material_ids=np.asarray(model.material_ids[kept_indices], dtype=np.int64),
+        connectivity=tuple(model.connectivity[index] for index in kept_indices),
+        orientations={
+            identifier: frame for identifier, frame in model.orientations.items()
+            if identifier in owned_beam_ids
+        },
+        periodic_pairs=automatic_pairs,
+    )
+    owned_instances = {
+        identifier: instance
+        for identifier, instance in supplement.junction_instances.items()
+        if identifier in owned_junction_ids
+    }
+    owned_assignments = {
+        identifier: beam_type
+        for identifier, beam_type in supplement.beam_assignments.items()
+        if identifier in owned_beam_ids
+    }
+    owned_beam_type_ids = set(owned_assignments.values())
+    owned_beam_types = {
+        identifier: beam_type
+        for identifier, beam_type in supplement.beam_types.items()
+        if identifier in owned_beam_type_ids
+    }
+    owned_junction_type_ids = {
+        instance.junction_type_id for instance in owned_instances.values()
+    }
+    owned_junction_types = {
+        identifier: junction_type
+        for identifier, junction_type in supplement.junction_types.items()
+        if identifier in owned_junction_type_ids
+    }
+
+    owned_connections: dict[tuple[int, int], JunctionConnection] = {}
+    for connection in supplement.junction_connections:
+        if connection.element_id not in beam_owner:
+            raise ValueError(
+                f"Junction connection references undefined element {connection.element_id}."
+            )
+        if connection.junction_id not in junction_owner:
+            raise ValueError(
+                f"Connection references undefined junction {connection.junction_id}."
+            )
+        owner_element, beam_translation = beam_owner[connection.element_id]
+        owner_junction, junction_translation = junction_owner[connection.junction_id]
+        rewritten = JunctionConnection(
+            junction_id=owner_junction,
+            connection_point_id=connection.connection_point_id,
+            element_id=owner_element,
+            endpoint=connection.endpoint,
+            image_shift=(
+                np.asarray(connection.image_shift, dtype=float)
+                + beam_translation - junction_translation
+            ),
+        )
+        key = (owner_junction, connection.connection_point_id)
+        previous = owned_connections.get(key)
+        if previous is None:
+            owned_connections[key] = rewritten
+        elif not (
+            previous.element_id == rewritten.element_id
+            and previous.endpoint == rewritten.endpoint
+            and np.allclose(
+                previous.image_shift, rewritten.image_shift,
+                rtol=0.0, atol=tolerance,
+            )
+        ):
+            raise ValueError(
+                f"Periodic junction images give conflicting ownership for junction "
+                f"{owner_junction}, connection point {connection.connection_point_id}."
+            )
+
+    owned_supplement = replace(
+        supplement,
+        beam_types=owned_beam_types,
+        beam_assignments=owned_assignments,
+        junction_types=owned_junction_types,
+        junction_instances=owned_instances,
+        junction_connections=tuple(owned_connections.values()),
+        beam_recovery={
+            identifier: recovery
+            for identifier, recovery in supplement.beam_recovery.items()
+            if identifier in owned_beam_type_ids
+        },
+    )
+    audit = PeriodicOwnershipAudit(
+        input_beams=len(model.element_ids),
+        owned_beams=len(owned_model.element_ids),
+        input_junctions=len(supplement.junction_instances),
+        owned_junctions=len(owned_instances),
+        beam_owner_by_id={key: value[0] for key, value in beam_owner.items()},
+        junction_owner_by_id={key: value[0] for key, value in junction_owner.items()},
+    )
+    return owned_model, owned_supplement, audit
+
+
+def complete_periodic_connection_shifts(
+    model: StructuralGenomeInput,
+    supplement: HybridSupplement,
+    stiffness_by_type: dict[int, JunctionStiffness],
+) -> HybridSupplement:
+    """Infer lattice-vector image shifts for owned boundary junctions."""
+
+    _, periods, tolerance = _periodic_box(model.nodes)
+    connectivity = {
+        int(identifier): nodes
+        for identifier, nodes in zip(model.element_ids, model.connectivity, strict=True)
+    }
+    completed: list[JunctionConnection] = []
+    for connection in supplement.junction_connections:
+        instance = supplement.junction_instances[connection.junction_id]
+        stiffness = stiffness_by_type[instance.junction_type_id]
+        points = {point.identifier: point for point in stiffness.connection_points}
+        point = points[connection.connection_point_id]
+        node_ids = connectivity[connection.element_id]
+        node = int(node_ids[connection.endpoint - 1])
+        expected = instance.origin + instance.frame.T @ point.origin
+        actual = model.nodes[node] + connection.image_shift
+        residual = expected - actual
+        correction = np.zeros(3)
+        valid = True
+        for axis, period in enumerate(periods):
+            if abs(residual[axis]) <= tolerance:
+                continue
+            if period <= tolerance:
+                valid = False
+                break
+            multiple = int(np.rint(residual[axis] / period))
+            if not np.isclose(
+                residual[axis], multiple * period, rtol=0.0, atol=tolerance
+            ):
+                valid = False
+                break
+            correction[axis] = multiple * period
+        completed.append(replace(
+            connection,
+            image_shift=(
+                connection.image_shift + correction if valid
+                else connection.image_shift
+            ),
+        ))
+    return replace(supplement, junction_connections=tuple(completed))
+
+
 def _validate_periodic_pair_geometry(
     nodes: FloatArray, pairs: list[tuple[int, int]]
 ) -> None:
@@ -140,7 +474,6 @@ def _validate_periodic_pair_geometry(
     spans = np.ptp(nodes, axis=0)
     scale = max(float(np.max(spans)), 1.0)
     tolerance = 1.0e-8 * scale
-    active_axes: set[int] = set()
     for slave, master in pairs:
         shift = nodes[slave] - nodes[master]
         if np.linalg.norm(shift) <= tolerance:
@@ -150,7 +483,6 @@ def _validate_periodic_pair_geometry(
         for axis, component in enumerate(shift):
             if abs(component) <= tolerance:
                 continue
-            active_axes.add(axis)
             if spans[axis] <= tolerance or not np.isclose(
                 abs(component), spans[axis], rtol=1.0e-8, atol=tolerance
             ):
@@ -159,37 +491,10 @@ def _validate_periodic_pair_geometry(
                     f"component {axis + 1} must be zero or the SG span {spans[axis]:g}."
                 )
 
-    representatives = _periodic_representatives(len(nodes), pairs)
-    minimum = np.min(nodes, axis=0)
-    maximum = np.max(nodes, axis=0)
-    for axis in sorted(active_axes):
-        other_axes = [index for index in range(3) if index != axis]
-        low_nodes = np.flatnonzero(np.isclose(nodes[:, axis], minimum[axis], atol=tolerance))
-        high_nodes = np.flatnonzero(np.isclose(nodes[:, axis], maximum[axis], atol=tolerance))
-        for low in low_nodes:
-            matches = high_nodes[
-                np.all(
-                    np.isclose(
-                        nodes[high_nodes][:, other_axes],
-                        nodes[low, other_axes],
-                        rtol=1.0e-8,
-                        atol=tolerance,
-                    ),
-                    axis=1,
-                )
-            ]
-            if len(matches) != 1:
-                raise ValueError(
-                    f"Node {low + 1} on the minimum face normal to coordinate "
-                    f"{axis + 1} has {len(matches)} matching nodes on the opposite face; "
-                    "expected exactly one."
-                )
-            high = int(matches[0])
-            if representatives[low] != representatives[high]:
-                raise ValueError(
-                    f"Opposite-face nodes {low + 1} and {high + 1} are geometrically "
-                    "periodic but are not identified by the periodic node records."
-                )
+    # Only explicitly supplied slave/master pairs require coincident periodic
+    # images.  A complete beam or junction owned by one representative
+    # boundary intentionally has no duplicate object (and therefore may have
+    # no opposite-face node) on the omitted image boundary.
 
 
 def read_structural_genome(path: str | Path) -> StructuralGenomeInput:
@@ -682,10 +987,22 @@ def validate_hybrid_input(
 
     used_nodes = set(np.concatenate(model.connectivity).tolist())
     unused_nodes = set(range(len(model.nodes))) - used_nodes
-    if unused_nodes:
+    # A boundary-ownership SG may retain a node only as the periodic image of
+    # an active owner node after the duplicate boundary beam is removed. Such
+    # a ghost has no independent DOF after periodic reduction and must not
+    # force assembly of a second full-section beam merely to count as "used".
+    representatives = _periodic_representatives(
+        len(model.nodes), model.periodic_pairs
+    )
+    active_representatives = {representatives[node] for node in used_nodes}
+    invalid_unused = {
+        node for node in unused_nodes
+        if representatives[node] not in active_representatives
+    }
+    if invalid_unused:
         raise ValueError(
             "The following nodes are not used by any element: "
-            f"{[node + 1 for node in sorted(unused_nodes)]}."
+            f"{[node + 1 for node in sorted(invalid_unused)]}."
         )
 
     if model.junction_flag == 0:
@@ -790,14 +1107,11 @@ def validate_hybrid_input(
         beam_type_id = supplement.beam_assignments[int(element_id)]
         for local_index, node in enumerate(connectivity):
             incidence[int(node)].append((beam_type_id, local_index < 2))
-    for slave, master in model.periodic_pairs:
-        slave_signature = sorted(incidence[slave])
-        master_signature = sorted(incidence[master])
-        if slave_signature != master_signature:
-            raise ValueError(
-                f"Periodic nodes {slave + 1} and {master + 1} have different beam "
-                f"connectivity signatures: {slave_signature} versus {master_signature}."
-            )
+    # Do not require identical unreduced connectivity at periodic image nodes.
+    # Under explicit boundary ownership, the complete beam is assembled on
+    # one representative face only; its opposite-face node remains tied by P
+    # but intentionally lacks the duplicate member. Requiring equal incidence
+    # here forces exactly the double energy contribution ownership prevents.
 
 
 def build_beam_discretization(

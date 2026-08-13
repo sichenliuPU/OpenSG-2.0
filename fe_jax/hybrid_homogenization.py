@@ -30,8 +30,11 @@ from .junction import (
 from .junction_solid import JunctionSolution, analyze_junction
 from .sc_hybrid_input import (
     HybridSupplement,
+    PeriodicOwnershipAudit,
     StructuralGenomeInput,
+    apply_periodic_ownership,
     build_beam_discretization,
+    complete_periodic_connection_shifts,
     read_hybrid_supplement,
     read_solid_junction,
     read_structural_genome,
@@ -62,6 +65,7 @@ class HomogenizationResult:
     junction_stiffness_by_type: dict[int, JunctionStiffness]
     junction_solution_by_type: dict[int, JunctionSolution]
     junction_assemblies: tuple["JunctionAssembly", ...]
+    periodic_ownership: PeriodicOwnershipAudit
 
     @property
     def reduced_fluctuation(self) -> FloatArray:
@@ -277,11 +281,37 @@ def solve_homogenization(
         diagonal=np.abs(e_reduced.diagonal())
         gauge=1.0e-12*max(float(diagonal.max(initial=0.0)),1.0)
         gauged=e_reduced+gauge*sparse.eye(e_reduced.shape[0],format='csr')
-        saddle=sparse.bmat(((gauged,constraint.T),
-                            (constraint,sparse.csr_matrix((6,6)))),format='csc')
-        right_hand_side=-np.vstack((np.asarray(d_reduced),terms.f_h_lambda))
-        solution=splu(saddle).solve(right_hand_side)
-        v_hat_0=solution[:e_reduced.shape[0]]
+        # Euler--Bernoulli elements constrain the mean translation only, so
+        # the last three rows of ``constraint`` are identically zero.  More
+        # generally, retain an independent subset of the at-most-six gauge
+        # rows; appending dependent multiplier rows makes the sparse saddle
+        # matrix singular even though the primal minimum-norm problem is
+        # well-defined.
+        constraint_dense=constraint.toarray()
+        _, triangular, pivots=linalg.qr(
+            constraint_dense.T, mode="economic", pivoting=True,
+            check_finite=True,
+        )
+        scale=max(float(np.linalg.norm(triangular,ord=np.inf)),1.0)
+        rank=int(np.count_nonzero(
+            np.abs(np.diag(triangular)) > np.finfo(float).eps*scale*
+            max(constraint_dense.shape)
+        ))
+        if rank:
+            active=np.sort(pivots[:rank])
+            active_constraint=constraint[active]
+            saddle=sparse.bmat(
+                ((gauged,active_constraint.T),
+                 (active_constraint,sparse.csr_matrix((rank,rank)))),
+                format='csc',
+            )
+            right_hand_side=-np.vstack(
+                (np.asarray(d_reduced),terms.f_h_lambda[active])
+            )
+            solution=splu(saddle).solve(right_hand_side)
+            v_hat_0=solution[:e_reduced.shape[0]]
+        else:
+            v_hat_0=splu(gauged.tocsc()).solve(-np.asarray(d_reduced))
     v_0 = p @ v_hat_0
     effective_stiffness = (
         terms.d_epsilon_epsilon
@@ -347,9 +377,14 @@ def homogenize(
         Path(str(model.path) + ".msg") if supplement_path is None else Path(supplement_path)
     )
     supplement = read_hybrid_supplement(supplement_path)
+    model, supplement, ownership = apply_periodic_ownership(model, supplement)
+    validate_hybrid_input(model, supplement)
+    stiffness_by_type, solution_by_type, junction_analysis_time = _load_junction_types(model, supplement)
+    supplement = complete_periodic_connection_shifts(
+        model, supplement, stiffness_by_type
+    )
     validate_hybrid_input(model, supplement)
     terms, connectivity, nodes, elements = _assemble_beams(model, supplement)
-    stiffness_by_type, solution_by_type, junction_analysis_time = _load_junction_types(model, supplement)
     junction_assemblies = _assemble_junctions(
         model, supplement, terms, connectivity, nodes, stiffness_by_type
     )
@@ -382,5 +417,6 @@ def homogenize(
         junction_stiffness_by_type=stiffness_by_type,
         junction_solution_by_type=solution_by_type,
         junction_assemblies=junction_assemblies,
+        periodic_ownership=ownership,
     )
     return model, supplement, result

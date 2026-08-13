@@ -5,10 +5,12 @@ import tempfile
 import unittest
 
 import numpy as np
-from scipy import linalg
+from scipy import linalg, sparse
 
 from fe_jax import beam_timoshenko
 from fe_jax.beam import (
+    BeamTheory,
+    BeamType,
     HomogenizationTerms,
     add_element_terms,
     beam_frame,
@@ -22,13 +24,22 @@ from fe_jax.junction import (
     JunctionInstance,
     JunctionConnectionPoint,
     JunctionStiffness,
+    JunctionType,
     connection_matrices,
     read_junction_stiffness,
     rigid_connection_modes,
     write_junction_stiffness,
 )
 from fe_jax.junction_solid import assemble_solid_stiffness, calculate_junction_stiffness
-from fe_jax.sc_hybrid_input import read_solid_junction, read_structural_genome
+from fe_jax.sc_hybrid_input import (
+    HybridSupplement,
+    StructuralGenomeInput,
+    apply_periodic_ownership,
+    build_beam_discretization,
+    complete_periodic_connection_shifts,
+    read_solid_junction,
+    read_structural_genome,
+)
 
 
 class TestBeamHybridHomogenization(unittest.TestCase):
@@ -251,6 +262,24 @@ class TestBeamHybridHomogenization(unittest.TestCase):
         np.testing.assert_allclose(v_0, expected_v_0)
         np.testing.assert_allclose(stiffness, expected_stiffness)
 
+    def test_sparse_solver_ignores_zero_euler_constraint_rows(self):
+        number_of_dofs = 2001
+        constraint = np.zeros((6, number_of_dofs))
+        constraint[:3, :3] = np.eye(3)
+        terms = HomogenizationTerms(
+            e=sparse.eye(number_of_dofs, format="csr"),
+            d_h_epsilon=np.zeros((number_of_dofs, 6)),
+            d_epsilon_epsilon=5.0 * np.eye(6),
+            d_h_lambda=constraint,
+            f_h_lambda=np.zeros((6, 6)),
+        )
+        stiffness, v_hat_0, v_0 = solve_homogenization(
+            terms, sparse.eye(number_of_dofs, format="csr"), volume=2.0
+        )
+        np.testing.assert_allclose(stiffness, 2.5 * np.eye(6))
+        np.testing.assert_allclose(v_hat_0, 0.0)
+        np.testing.assert_allclose(v_0, 0.0)
+
     def test_historical_fluctuation_alias_has_old_sign(self):
         _, _, result = homogenize(
             self.examples / "rigid_timoshenko_cross.sc"
@@ -286,6 +315,138 @@ class TestBeamHybridHomogenization(unittest.TestCase):
             ),
         )
         np.testing.assert_allclose(b_epsilon[3:], 0.0)
+
+    def _ownership_input(self, beam_positions=(), junction_positions=()):
+        nodes = [
+            np.array([-0.5, -0.5, -0.5]),
+            np.array([0.5, 0.5, 0.5]),
+        ]
+        connectivity = []
+        for position in beam_positions:
+            start = np.asarray(position, dtype=float)
+            connectivity.append(np.array([len(nodes), len(nodes) + 1]))
+            nodes.extend((start, start + np.array([0.25, 0.0, 0.0])))
+        element_ids = np.arange(1, len(connectivity) + 1, dtype=np.int64)
+        model = StructuralGenomeInput(
+            path=Path("ownership.sc"), analysis=0, element_flag=2,
+            transformation_flag=1, temperature_flag=0,
+            junction_flag=2 if junction_positions else 0, dimension=3,
+            nodes=np.asarray(nodes), element_ids=element_ids,
+            material_ids=np.ones(len(connectivity), dtype=np.int64),
+            connectivity=tuple(connectivity), orientations={}, periodic_pairs=[],
+            number_of_materials=1, tail_records=(), volume=1.0,
+        )
+        beam_type = BeamType(
+            1, BeamTheory.EULER_BERNOULLI, 3, np.eye(4)
+        )
+        instances = {
+            identifier: JunctionInstance(
+                identifier, 1, np.asarray(position, dtype=float), np.eye(3)
+            )
+            for identifier, position in enumerate(junction_positions, start=1)
+        }
+        supplement = HybridSupplement(
+            version=1, beam_types={1: beam_type},
+            beam_assignments={int(identifier): 1 for identifier in element_ids},
+            junction_types=(
+                {1: JunctionType(1, 1, Path("junction.kj"))}
+                if junction_positions else {}
+            ),
+            junction_instances=instances, junction_connections=(),
+            beam_recovery={},
+        )
+        return model, supplement
+
+    def test_automatic_periodic_beam_ownership_on_face_and_edge(self):
+        cases = (
+            (([0.0, -0.5, 0.0], [0.0, 0.5, 0.0]), 2),
+            ((
+                [0.0, -0.5, -0.5], [0.0, -0.5, 0.5],
+                [0.0, 0.5, -0.5], [0.0, 0.5, 0.5],
+            ), 4),
+        )
+        for positions, input_count in cases:
+            with self.subTest(input_count=input_count):
+                model, supplement = self._ownership_input(positions)
+                owned_model, owned_supplement, audit = apply_periodic_ownership(
+                    model, supplement
+                )
+                self.assertEqual(audit.input_beams, input_count)
+                self.assertEqual(audit.owned_beams, 1)
+                self.assertEqual(len(build_beam_discretization(
+                    owned_model, owned_supplement
+                )[1]), 1)
+
+    def test_automatic_periodic_junction_ownership_on_face_edge_and_corner(self):
+        for axes in (1, 2, 3):
+            positions = []
+            for image in np.ndindex(*(2,) * axes):
+                point = np.zeros(3)
+                point[:axes] = [(-0.5, 0.5)[value] for value in image]
+                positions.append(point)
+            model, supplement = self._ownership_input(
+                beam_positions=(), junction_positions=positions
+            )
+            _, owned, audit = apply_periodic_ownership(model, supplement)
+            self.assertEqual(audit.input_junctions, 2 ** axes)
+            self.assertEqual(audit.owned_junctions, 1)
+            self.assertEqual(len(owned.junction_instances), 1)
+            np.testing.assert_allclose(
+                next(iter(owned.junction_instances.values())).origin[:axes],
+                -0.5,
+            )
+
+    def test_boundary_beam_and_junction_choose_same_representative(self):
+        positions = ([0.0, -0.5, 0.0], [0.0, 0.5, 0.0])
+        model, supplement = self._ownership_input(positions, positions)
+        supplement = HybridSupplement(
+            **{
+                **supplement.__dict__,
+                "junction_connections": tuple(
+                    JunctionConnection(index, 1, index, 1, np.zeros(3))
+                    for index in (1, 2)
+                ),
+            }
+        )
+        owned_model, owned_supplement, audit = apply_periodic_ownership(
+            model, supplement
+        )
+        self.assertEqual((audit.owned_beams, audit.owned_junctions), (1, 1))
+        connection = owned_supplement.junction_connections[0]
+        instance = owned_supplement.junction_instances[connection.junction_id]
+        endpoint = owned_model.nodes[
+            owned_model.connectivity[0][connection.endpoint - 1]
+        ]
+        np.testing.assert_allclose(endpoint, instance.origin)
+        np.testing.assert_allclose(connection.image_shift, 0.0)
+
+    def test_periodic_connection_shift_is_inferred_without_opposite_node(self):
+        beam_position = [0.0, 0.5, 0.0]
+        junction_position = [0.0, -0.5, 0.0]
+        model, supplement = self._ownership_input(
+            [beam_position], [junction_position]
+        )
+        supplement = HybridSupplement(
+            **{
+                **supplement.__dict__,
+                "junction_connections": (
+                    JunctionConnection(1, 1, 1, 1, np.zeros(3)),
+                ),
+            }
+        )
+        stiffness = JunctionStiffness(
+            connection_points=(
+                JunctionConnectionPoint(1, np.zeros(3), np.eye(3)),
+            ),
+            matrix=np.zeros((6, 6)),
+        )
+        completed = complete_periodic_connection_shifts(
+            model, supplement, {1: stiffness}
+        )
+        np.testing.assert_allclose(
+            completed.junction_connections[0].image_shift,
+            [0.0, -1.0, 0.0],
+        )
 
 
     def test_four_value_control_record_defaults_to_rigid_mode(self):

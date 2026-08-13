@@ -121,10 +121,15 @@ junction_id connection_point_id element_id endpoint shift_x shift_y shift_z
 
 Boundary junctions use the same records as internal junctions. The shift is
 zero when the beam endpoint already coincides with its connection point.
-Otherwise, enter the periodic translation that makes the endpoint coincide
-with the connection point.
+Otherwise, OpenSG accepts an explicit periodic translation or infers the
+missing lattice-vector shift from the SG dimensions.
 OpenSG then applies the beam periodic mapping; the local 3D solid-junction mesh
 does not require periodic constraints.
+
+Before assembly, complete boundary beams and junction instances are grouped by
+translation modulo the SG dimensions. OpenSG retains one owner on a
+representative face, edge, or corner, rewrites its beam--junction connections,
+and omits the other copies so their strain energy is counted once.
 
 Optional localization records follow all connection records. Associate each
 beam type with the VABS section used to obtain its three-dimensional fields:
@@ -228,7 +233,7 @@ it detects an invalid model. Checks include:
   junction flags;
 - complete beam assignments, supported connectivity, orientations, finite
   coordinates, positive-definite section stiffness, and unused nodes;
-- valid periodic pairs, opposite-face geometry, matching beam connectivity,
+- valid supplied periodic pairs, automatic periodic beam/junction ownership,
   and three independent periodic translations assembled from node pairs and
   junction image shifts;
 - agreement among junction types, instances, connections, beam endpoints,

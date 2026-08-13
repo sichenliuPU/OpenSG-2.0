@@ -272,6 +272,14 @@ The fluctuating beam variables of the two endpoint nodes are identified. Opposit
 edge, and corner nodes may be linked through several records to one periodic
 representative.
 
+Before stiffness assembly, OpenSG also groups translationally equivalent beam
+elements into periodic image orbits. One complete beam is retained on the
+lexicographically minimum representative face or edge and its other image
+copies are omitted. Missing endpoint pairs created by this ownership operation
+are inserted automatically. Consequently, nodal reduction and object ownership
+are distinct: the former equates variables, while the latter prevents duplicate
+strain-energy contributions.
+
 For a three-dimensional SG, the periodic node translations and junction image
 shifts together must span three independent directions.
 
@@ -487,18 +495,21 @@ junction in the same way as an internal junction:
 
 1. enter its junction-instance record using its SG coordinates;
 2. enter one record for every junction connection point;
-3. use a zero shift when the beam endpoint already coincides with the connection point;
-4. otherwise, enter the periodic translation that makes the endpoint coincide
-   with the connection point.
+3. a zero shift may be used when the beam endpoint already coincides with the
+   connection point; OpenSG infers a missing lattice-vector shift when the
+   endpoint is represented on another periodic boundary.
 
 OpenSG handles the periodic mapping through the beam endpoint and connection
 records. The user does not apply periodic constraints to nodes in the local 3D
 solid-junction mesh, and no special junction type is required for a face, edge,
 or corner location.
 
-If two locations on opposite SG boundaries represent the same periodic
-junction, list one junction instance and map its connection points using the
-shift columns. This prevents the same junction from being entered twice.
+If two, four, or eight supplied instances of the same complete junction type
+on corresponding faces, edges, or corners are periodic images, OpenSG groups
+them before assembly and retains one complete junction. Their beam connections
+are redirected to the owned beams and duplicate connections are removed.
+Supplying only the one complete representative junction remains valid and is
+the most compact input.
 
 ## 9. Solid-junction input for flag 1
 
@@ -1025,10 +1036,10 @@ or order.
    periodic node pairs.
 6. For flags 1 and 2, give every junction connection its own beam endpoint node.
 7. Enter boundary junctions with the same instance and connection records used
-   for internal junctions. Do not repeat the same periodic junction on the
-   opposite boundary.
-8. Use the shift columns when a connection uses a beam endpoint
-   represented on another periodic boundary.
+   for internal junctions. OpenSG accepts either one complete representative or
+   its repeated periodic images and retains one complete junction.
+8. Shift columns may be supplied explicitly; missing lattice-vector shifts are
+   inferred when a connection uses a beam endpoint on another periodic boundary.
 9. Check that node-pair and image-shift translations span three directions.
 10. For flag 1, prepare TET4/TRI3 or TET10/TRI6 solid-junction meshes.
 11. For flag 2, verify that each `.kj` file uses exactly the declared connection

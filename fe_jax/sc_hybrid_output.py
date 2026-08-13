@@ -46,6 +46,10 @@ def write_effective_properties(
         f" Internal analysis nodes   = {result.number_of_full_dofs // 6}",
         f" Full beam DOFs            = {result.number_of_full_dofs}",
         f" Independent beam DOFs     = {result.number_of_independent_dofs}",
+        f" Input/owned beams         = {result.periodic_ownership.input_beams}/"
+        f"{result.periodic_ownership.owned_beams}",
+        f" Input/owned junctions     = {result.periodic_ownership.input_junctions}/"
+        f"{result.periodic_ownership.owned_junctions}",
         f" Junction instances        = {result.number_of_junctions}",
         f" Zero-energy mechanism     = {str(result.has_mechanism).lower()}",
         f" Junction analysis time [s]= {result.junction_analysis_time:.7E}",
