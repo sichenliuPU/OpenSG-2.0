@@ -95,7 +95,7 @@ The command may be issued from any directory if the path to `model.sc` is
 given. For example:
 
 ```text
-opensg examples/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag2.sc 3D H
+opensg examples/opensg/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag2.sc 3D H
 ```
 
 The program writes:
@@ -586,7 +586,7 @@ interfaces may meet along perimeter nodes, but the same face cannot belong to
 two interfaces.
 
 A complete linear example is provided by
-[`linear_two_connection_cube_junction.sc`](../examples/beam_hybrid/linear_two_connection_cube_junction.sc)
+[`linear_two_connection_cube_junction.sc`](../../examples/opensg/beam_hybrid/linear_two_connection_cube_junction.sc)
 and its companion `.sc.msg` file. The BCCH flag-1 examples demonstrate the
 quadratic TET10/TRI6 form.
 
@@ -655,7 +655,7 @@ creates the junction mesh.
 ## 11. BCCH tutorial examples
 
 The directory
-[`examples/beam_hybrid/bcch_lambda06`](../examples/beam_hybrid/bcch_lambda06)
+[`examples/opensg/beam_hybrid/bcch_lambda06`](../../examples/opensg/beam_hybrid/bcch_lambda06)
 contains six complete BCCH examples for \(\lambda=0.6\):
 
 | File | Beam theory | Junction flag |
@@ -675,7 +675,7 @@ files. The junctions have 10, 12, 5, 5, 3, 3, 3, and 3 connection points.
 From the OpenSG source directory:
 
 ```text
-opensg examples/beam_hybrid/bcch_lambda06/bcch_euler_flag0.sc 3D H
+opensg examples/opensg/beam_hybrid/bcch_lambda06/bcch_euler_flag0.sc 3D H
 ```
 
 Expected effective Young's modulus:
@@ -689,7 +689,7 @@ E1 = 5.3830218E+01 MPa
 This is the quickest hybrid example:
 
 ```text
-opensg examples/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag2.sc 3D H
+opensg examples/opensg/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag2.sc 3D H
 ```
 
 Expected effective Young's modulus:
@@ -701,7 +701,7 @@ E1 = 7.0389868E+01 MPa
 ### 11.3 Calculate junction stiffness from solid meshes
 
 ```text
-opensg examples/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag1.sc 3D H
+opensg examples/opensg/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag1.sc 3D H
 ```
 
 This analyzes all eight solid-junction types, writes eight `.kj` files, and
@@ -711,12 +711,12 @@ roundoff.
 ### 11.4 Run all six examples
 
 ```text
-opensg examples/beam_hybrid/bcch_lambda06/bcch_euler_flag0.sc 3D H
-opensg examples/beam_hybrid/bcch_lambda06/bcch_euler_flag1.sc 3D H
-opensg examples/beam_hybrid/bcch_lambda06/bcch_euler_flag2.sc 3D H
-opensg examples/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag0.sc 3D H
-opensg examples/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag1.sc 3D H
-opensg examples/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag2.sc 3D H
+opensg examples/opensg/beam_hybrid/bcch_lambda06/bcch_euler_flag0.sc 3D H
+opensg examples/opensg/beam_hybrid/bcch_lambda06/bcch_euler_flag1.sc 3D H
+opensg examples/opensg/beam_hybrid/bcch_lambda06/bcch_euler_flag2.sc 3D H
+opensg examples/opensg/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag0.sc 3D H
+opensg examples/opensg/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag1.sc 3D H
+opensg examples/opensg/beam_hybrid/bcch_lambda06/bcch_timoshenko_flag2.sc 3D H
 ```
 
 The rerun results are:
@@ -904,8 +904,8 @@ are stored inside the example directory. Run the comparison and produce the
 six separate stress-component figures afterward with:
 
 ```text
-python examples/simple_cubic_dehomogenization/verify_dehomogenization.py
-python examples/simple_cubic_dehomogenization/plot_centerline.py
+python examples/opensg/simple_cubic_dehomogenization/verify_dehomogenization.py
+python examples/opensg/simple_cubic_dehomogenization/plot_centerline.py
 ```
 
 This plotting program is not imported by either solver.

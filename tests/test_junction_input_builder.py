@@ -1,8 +1,13 @@
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
 import numpy as np
+
+EXAMPLES_ROOT = Path(__file__).parents[2] / "examples"
+if str(EXAMPLES_ROOT) not in sys.path:
+    sys.path.append(str(EXAMPLES_ROOT))
 
 from fe_jax.beam import beam_frame
 from fe_jax.junction import JunctionConnectionPoint

@@ -9,6 +9,7 @@ from scipy import linalg
 
 from fe_jax import beam_timoshenko
 from fe_jax.beam import (
+    HomogenizationTerms,
     add_element_terms,
     beam_frame,
     create_homogenization_terms,
@@ -33,7 +34,7 @@ from fe_jax.sc_hybrid_input import read_solid_junction, read_structural_genome
 class TestBeamHybridHomogenization(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.examples = Path(__file__).parents[1] / "examples" / "beam_hybrid"
+        cls.examples = Path(__file__).parents[2] / "examples" / "opensg" / "beam_hybrid"
 
     def test_timoshenko_module_has_no_alpha(self):
         source = inspect.getsource(beam_timoshenko).lower()
@@ -226,6 +227,37 @@ class TestBeamHybridHomogenization(unittest.TestCase):
         self.assertGreater(results[("euler", 0)], results[("timoshenko", 0)])
         self.assertGreater(results[("euler", 2)], results[("timoshenko", 2)])
 
+    def test_solver_uses_derivation_sign_for_v_hat_0(self):
+        e = np.diag(np.arange(1.0, 7.0))
+        d_h_epsilon = np.diag(np.linspace(0.2, 1.2, 6))
+        d_epsilon_epsilon = 5.0 * np.eye(6)
+        terms = HomogenizationTerms(
+            e=e,
+            d_h_epsilon=d_h_epsilon,
+            d_epsilon_epsilon=d_epsilon_epsilon,
+            d_h_lambda=np.zeros((6, 6)),
+            f_h_lambda=np.zeros((6, 6)),
+        )
+        stiffness, v_hat_0, v_0 = solve_homogenization(
+            terms, np.eye(6), volume=2.0
+        )
+        expected_v_0 = -np.linalg.solve(e, d_h_epsilon)
+        expected_stiffness = (
+            d_epsilon_epsilon
+            + 2.0 * expected_v_0.T @ d_h_epsilon
+            + expected_v_0.T @ e @ expected_v_0
+        ) / 2.0
+        np.testing.assert_allclose(v_hat_0, expected_v_0)
+        np.testing.assert_allclose(v_0, expected_v_0)
+        np.testing.assert_allclose(stiffness, expected_stiffness)
+
+    def test_historical_fluctuation_alias_has_old_sign(self):
+        _, _, result = homogenize(
+            self.examples / "rigid_timoshenko_cross.sc"
+        )
+        np.testing.assert_allclose(result.full_fluctuation, -result.v_0)
+        np.testing.assert_allclose(result.reduced_fluctuation, -result.v_hat_0)
+
     def test_boundary_connection_uses_unwrapped_position(self):
         nodes = np.array([[-0.5, 0.0, 0.0], [-1.0, 0.0, 0.0]])
         stiffness = JunctionStiffness(
@@ -253,6 +285,8 @@ class TestBeamHybridHomogenization(unittest.TestCase):
                  [0.0, 0.0, 0.0, 0.0, 0.25, 0.0]]
             ),
         )
+        np.testing.assert_allclose(b_epsilon[3:], 0.0)
+
 
     def test_four_value_control_record_defaults_to_rigid_mode(self):
         source = (self.examples / "rigid_timoshenko_cross.sc").read_text()

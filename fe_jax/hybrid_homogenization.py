@@ -7,7 +7,8 @@ from pathlib import Path
 from time import perf_counter
 
 import numpy as np
-from scipy import linalg
+from scipy import linalg, sparse
+from scipy.sparse.linalg import splu
 
 from .beam import (
     BeamTheory,
@@ -48,8 +49,8 @@ class HomogenizationResult:
     has_mechanism: bool
     full_terms: HomogenizationTerms
     periodic_matrix: FloatArray
-    reduced_fluctuation: FloatArray
-    full_fluctuation: FloatArray
+    v_hat_0: FloatArray
+    v_0: FloatArray
     number_of_full_dofs: int
     number_of_independent_dofs: int
     number_of_junctions: int
@@ -61,6 +62,18 @@ class HomogenizationResult:
     junction_stiffness_by_type: dict[int, JunctionStiffness]
     junction_solution_by_type: dict[int, JunctionSolution]
     junction_assemblies: tuple["JunctionAssembly", ...]
+
+    @property
+    def reduced_fluctuation(self) -> FloatArray:
+        """Compatibility alias for the historical ``X = -v_hat_0`` matrix."""
+
+        return -self.v_hat_0
+
+    @property
+    def full_fluctuation(self) -> FloatArray:
+        """Compatibility alias for the historical ``X = -v_0`` matrix."""
+
+        return -self.v_0
 
 
 @dataclass(frozen=True)
@@ -233,32 +246,52 @@ def solve_homogenization(
 
     if volume <= 0.0:
         raise ValueError("The structure-gene volume must be positive.")
-    p = np.asarray(periodic_matrix, dtype=float)
-    e_reduced = p.T @ terms.e @ p
+    p = (periodic_matrix.tocsr() if sparse.issparse(periodic_matrix)
+         else sparse.csr_matrix(np.asarray(periodic_matrix,dtype=float)))
+    if sparse.issparse(terms.e):
+        e_full=terms.e.tocsr()
+    else:
+        e_full=sparse.csr_matrix(terms.e)
+    e_reduced = sparse.csr_matrix(p.T @ terms.e @ p)
     d_reduced = p.T @ terms.d_h_epsilon
-    constraint = terms.d_h_lambda @ p
+    constraint = sparse.csr_matrix(terms.d_h_lambda) @ p
 
-    solve_constraint = _minimum_norm_solve(e_reduced, constraint.T)
-    solve_coupling = _minimum_norm_solve(e_reduced, d_reduced)
-    constraint_matrix = constraint @ solve_constraint
-    constraint_right_hand_side = (
-        constraint @ solve_coupling - terms.f_h_lambda
-    )
-    multiplier = _minimum_norm_solve(
-        constraint_matrix,
-        constraint_right_hand_side,
-    )
-    reduced_fluctuation = solve_coupling - solve_constraint @ multiplier
-    full_fluctuation = p @ reduced_fluctuation
+    if e_reduced.shape[0] <= 2000:
+        # Retain the exact minimum-norm path for small/reference problems.
+        dense=e_reduced.toarray()
+        dense_constraint=constraint.toarray()
+        solve_constraint=_minimum_norm_solve(dense,dense_constraint.T)
+        solve_coupling=_minimum_norm_solve(dense,np.asarray(d_reduced))
+        constraint_matrix=dense_constraint@solve_constraint
+        constraint_right_hand_side=(dense_constraint@solve_coupling-
+                                    terms.f_h_lambda)
+        multiplier=_minimum_norm_solve(constraint_matrix,
+                                       constraint_right_hand_side)
+        # The derivation defines V_hat = V_hat_0 * epsilon.  Its right-hand
+        # side is negative, so retain that physical sign in the stored result.
+        v_hat_0=-(solve_coupling-solve_constraint@multiplier)
+    else:
+        # Large lattice SGs contain independent rigid motions when centerline
+        # networks are disconnected.  A scale-relative Tikhonov gauge selects
+        # the same minimum-norm representative while allowing sparse LU.
+        diagonal=np.abs(e_reduced.diagonal())
+        gauge=1.0e-12*max(float(diagonal.max(initial=0.0)),1.0)
+        gauged=e_reduced+gauge*sparse.eye(e_reduced.shape[0],format='csr')
+        saddle=sparse.bmat(((gauged,constraint.T),
+                            (constraint,sparse.csr_matrix((6,6)))),format='csc')
+        right_hand_side=-np.vstack((np.asarray(d_reduced),terms.f_h_lambda))
+        solution=splu(saddle).solve(right_hand_side)
+        v_hat_0=solution[:e_reduced.shape[0]]
+    v_0 = p @ v_hat_0
     effective_stiffness = (
         terms.d_epsilon_epsilon
-        - 2.0 * full_fluctuation.T @ terms.d_h_epsilon
-        + full_fluctuation.T @ terms.e @ full_fluctuation
+        + 2.0 * v_0.T @ terms.d_h_epsilon
+        + v_0.T @ e_full @ v_0
     ) / volume
     effective_stiffness = 0.5 * (effective_stiffness + effective_stiffness.T)
     tolerance = 1.0e-12 * max(float(np.linalg.norm(effective_stiffness)), 1.0)
     effective_stiffness[np.abs(effective_stiffness) < tolerance] = 0.0
-    return effective_stiffness, reduced_fluctuation, full_fluctuation
+    return effective_stiffness, v_hat_0, v_0
 
 
 def calculate_engineering_constants(
@@ -323,8 +356,8 @@ def homogenize(
 
     homogenization_started = perf_counter()
     p_sparse = periodic_reduction(len(nodes), model.periodic_pairs)
-    p = p_sparse.toarray()
-    stiffness, reduced_fluctuation, full_fluctuation = solve_homogenization(
+    p = p_sparse
+    stiffness, v_hat_0, v_0 = solve_homogenization(
         terms, p, model.volume
     )
     compliance, constants, has_mechanism = calculate_engineering_constants(stiffness)
@@ -336,8 +369,8 @@ def homogenize(
         has_mechanism=has_mechanism,
         full_terms=terms,
         periodic_matrix=p,
-        reduced_fluctuation=reduced_fluctuation,
-        full_fluctuation=full_fluctuation,
+        v_hat_0=v_hat_0,
+        v_0=v_0,
         number_of_full_dofs=terms.e.shape[0],
         number_of_independent_dofs=p.shape[1],
         number_of_junctions=len(supplement.junction_instances),

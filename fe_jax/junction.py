@@ -6,9 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from scipy import linalg
+from scipy import sparse
 
-from .beam import FloatArray, HomogenizationTerms, IntArray, macro_displacement_matrix
+from .beam import (
+    FloatArray,
+    HomogenizationTerms,
+    IntArray,
+    macro_displacement_matrix,
+)
 
 
 @dataclass(frozen=True)
@@ -226,14 +231,22 @@ def connection_matrices(
         )
         columns = slice(6 * node, 6 * node + 6)
         global_connection_frame = connection_point.frame @ instance.frame
-        b_v[rows, columns] = linalg.block_diag(
-            global_connection_frame, global_connection_frame
+        b_v[rows.start : rows.start + 3, columns.start : columns.start + 3] = (
+            global_connection_frame
+        )
+        b_v[rows.start + 3 : rows.stop, columns.start + 3 : columns.stop] = (
+            global_connection_frame
         )
 
         unwrapped_position = nodes[node] + connection.image_shift
+        # The macroscopic part of the revised SG-coordinate connection field
+        # is A_epsilon * epsilon.  Express its translational rows in the
+        # connection-local frame; the three rotational rows remain zero.
         b_epsilon[rows.start : rows.start + 3] = (
-            global_connection_frame @ macro_displacement_matrix(unwrapped_position)[:3]
+            global_connection_frame
+            @ macro_displacement_matrix(unwrapped_position)[:3]
         )
+
 
         expected_position = instance.origin + instance.frame.T @ connection_point.origin
         if not np.allclose(unwrapped_position, expected_position, rtol=1.0e-8, atol=1.0e-9):
@@ -254,10 +267,14 @@ def add_junction_terms(
     """Add one complete physical junction to homogenization arrays."""
 
     matrix = stiffness.matrix
-    terms.e += b_v.T @ matrix @ b_v
+    junction_e=b_v.T @ matrix @ b_v
+    if sparse.issparse(terms.e):
+        terms.e += sparse.csr_matrix(junction_e)
+    else:
+        terms.e += junction_e
     terms.d_h_epsilon += b_v.T @ matrix @ b_epsilon
     terms.d_epsilon_epsilon += b_epsilon.T @ matrix @ b_epsilon
-    terms.e[:] = 0.5 * (terms.e + terms.e.T)
+    terms.e = 0.5 * (terms.e + terms.e.T)
     terms.d_epsilon_epsilon[:] = 0.5 * (
         terms.d_epsilon_epsilon + terms.d_epsilon_epsilon.T
     )

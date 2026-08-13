@@ -1,0 +1,74 @@
+\subsubsection{Selection of the solid junction region}
+
+The junction region must be properly defined for the junction analysis. The region's appropriate size depends primarily on the cross-sectional dimensions of the strut, the number and orientations of the struts meeting at the junction, and the length of the shortest strut. If the region is too small, the deformation near the junction may not be accurately captured because the beam model cannot capture the boundary effects. Conversely, an excessively large junction region increases the computational cost due to the larger number of solid elements required. It may also cause the interfaces of two adjacent junctions to overlap.
+
+To define the junction regions, let $L$ denote the distance from the center of a junction to the junction--strut interface, and let $r=0.3444~\text{mm}$ denote the strut radius. The BCCH SG contains eight complete physical junctions after periodic equivalence is considered: one 10-connection-point junction on an SG face, one 12-connection-point junction on an SG edge, two internal five-connection-point junctions, and four internal three-connection-point junctions. The four corresponding junction-region dimensions are denoted by $(L/r)_{\mathrm{face}}$, $(L/r)_{\mathrm{edge}}$, $(L/r)_{\mathrm{five}}$, and $(L/r)_{\mathrm{three}}$, respectively. They are varied independently because the four junction families have different geometries.
+
+The reference effective properties are obtained by analyzing the entire SG using SwiftComp. The SG and the solid junction regions are meshed using the same mesh size of $0.1~\text{mm}$ and quadratic 10-node tetrahedral elements. The SwiftComp reference values are $E_{1,\mathrm{SC}}=70.415945~\text{MPa}$, $\nu_{12,\mathrm{SC}}=0.48580503$, and $G_{12,\mathrm{SC}}=494.468208~\text{MPa}$. The relative difference in each property $p$ is calculated as
+\[
+\operatorname{Diff}(p)
+=
+\frac{p-p_{\mathrm{SC}}}{p_{\mathrm{SC}}}\times100\%.
+\]
+To identify a junction-region selection that gives balanced accuracy across the three properties, the maximum absolute relative difference is defined as
+\[
+e_{\max}
+=
+\max\left(
+\left|\operatorname{Diff}(E_1)\right|,
+\left|\operatorname{Diff}(\nu_{12})\right|,
+\left|\operatorname{Diff}(G_{12})\right|
+\right).
+\]
+
+The complete-interface requirement gives approximate lower limits of $(L/r)_{\mathrm{face}}=1.9$ and $(L/r)_{\mathrm{edge}}=2.9$. A coarse independent search is first performed for the four junction families. The neighborhood containing the lowest values of $e_{\max}$ is then analyzed using the final mesh size of $0.1~\text{mm}$. Table~\ref{tab:bcch_partition_study} presents the original junction-region selection and the best combinations from the refined search.
+
+\begin{table}[H]
+\centering
+\caption{Influence of the independently selected junction-region dimensions on the effective properties relative to SwiftComp}
+\label{tab:bcch_partition_study}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{ccccccccccc}
+\toprule
+$(L/r)_{\mathrm{face}}$
+& $(L/r)_{\mathrm{edge}}$
+& $(L/r)_{\mathrm{five}}$
+& $(L/r)_{\mathrm{three}}$
+& $E_1$ (MPa)
+& $\operatorname{Diff}(E_1)$
+& $\nu_{12}$
+& $\operatorname{Diff}(\nu_{12})$
+& $G_{12}$ (MPa)
+& $\operatorname{Diff}(G_{12})$
+& $e_{\max}$ \\
+\midrule
+$2.0$ & $3.0$ & $2.0$ & $2.0$
+& $70.366713$ & $-0.0699\%$
+& $0.48585528$ & $0.0103\%$
+& $497.471062$ & $0.6073\%$ & $0.6073\%$ \\
+$1.9$ & $3.0$ & $2.0$ & $2.0$
+& $70.330098$ & $-0.1219\%$
+& $0.48593595$ & $0.0269\%$
+& $497.408435$ & $0.5946\%$ & $0.5946\%$ \\
+$1.9$ & $2.9$ & $2.5$ & $2.0$
+& $70.100047$ & $-0.4486\%$
+& $0.48584586$ & $0.0084\%$
+& $497.069770$ & $0.5261\%$ & $0.5261\%$ \\
+$1.9$ & $2.9$ & $2.6$ & $2.0$
+& $70.098194$ & $-0.4512\%$
+& $0.48584417$ & $0.0081\%$
+& $497.068193$ & $0.5258\%$ & $0.5258\%$ \\
+$1.9$ & $2.9$ & $2.7$ & $2.0$
+& $70.072873$ & $-0.4872\%$
+& $0.48571418$ & $-0.0187\%$
+& $497.068770$ & $0.5259\%$ & $0.5259\%$ \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+The smallest value of $e_{\max}$ is obtained using $(L/r)_{\mathrm{face}}=1.9$, $(L/r)_{\mathrm{edge}}=2.9$, $(L/r)_{\mathrm{five}}=2.6$, and $(L/r)_{\mathrm{three}}=2.0$. The corresponding differences in $E_1$, $\nu_{12}$, and $G_{12}$ are $-0.4512\%$, $0.0081\%$, and $0.5258\%$, respectively. This selection reduces the maximum difference from $0.6073\%$ for the original selection to $0.5258\%$.
+
+The BCCH SG contains short struts connecting the smaller and larger BCC networks. The shortest of these struts has a length of $2.0~\text{mm}$, corresponding to only $2.904$ strut diameters. With the selected junction-region dimensions, the beam segment remaining along this strut is $0.4504~\text{mm}$, or $0.654$ strut diameters. Increasing either adjacent solid junction region substantially beyond the selected values would therefore leave a beam segment that is too short to provide a meaningful beam representation.
+
+Each junction is constructed as the Boolean union of its incident circular struts and is meshed using quadratic 10-node tetrahedral elements. The junction--strut interfaces are meshed using quadratic six-node triangular faces. With the selected junction-region dimensions, the eight junction meshes contain a total of $44{,}144$ elements and $75{,}605$ nodes. A junction on a periodic boundary is stored once as a complete physical junction. Its connection points are mapped to the corresponding beam endpoints through the periodic translations of the SG. Consequently, periodic constraints are not applied directly to the nodes of the three-dimensional junction mesh. Representative periodic junction meshes are shown in Fig.~\ref{fig:bcch_junctions}.

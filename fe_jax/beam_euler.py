@@ -133,7 +133,9 @@ def three_node_generalized_strain_matrix(xi: float, length: float) -> FloatArray
     return result
 
 
-def _three_node_macro_map(frame: FloatArray) -> FloatArray:
+def nodal_alpha_map(frame: FloatArray) -> FloatArray:
+    """Return ``S^b alpha`` at the three Euler beam nodes."""
+
     b2 = local_macro_strain_row(frame, 1, 0)
     b3 = local_macro_strain_row(frame, 2, 0)
     nodal = np.vstack((np.zeros((4, 6)), b3, -b2))
@@ -199,7 +201,7 @@ def _three_node_element_terms(
         raise ValueError("The third Euler node must lie at the element midpoint.")
 
     transformation = variable_transformation(frame, 3)
-    macro_map = _three_node_macro_map(frame)
+    macro_map = nodal_alpha_map(frame)
     gamma_epsilon = np.vstack(
         (local_macro_strain_row(frame, 0, 0), np.zeros((3, 6)))
     )

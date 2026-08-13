@@ -17,7 +17,7 @@ from fe_jax.vabs_localization import global_file_text
 class TestDehomogenization(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.examples = Path(__file__).parents[1] / "examples" / "beam_hybrid"
+        cls.examples = Path(__file__).parents[2] / "examples" / "opensg" / "beam_hybrid"
 
     def test_global_fields_accept_strain_and_stress(self):
         stiffness = np.diag([10.0, 20.0, 30.0, 4.0, 5.0, 6.0])

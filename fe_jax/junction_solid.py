@@ -102,9 +102,14 @@ def assemble_solid_stiffness(model: SolidJunctionModel) -> sparse.csc_matrix:
         (b, a, b, 1.0 / 24.0),
         (b, b, a, 1.0 / 24.0),
     )
-    rows: list[int] = []
-    columns: list[int] = []
-    values: list[float] = []
+    # Preallocate numeric COO storage.  Python lists are prohibitively costly
+    # for full-cell TET10 meshes (900 entries per element) and can consume
+    # several times the memory of the resulting sparse matrix.
+    entry_count = sum((3 * len(element)) ** 2 for element in model.elements)
+    rows = np.empty(entry_count, dtype=np.int32)
+    columns = np.empty(entry_count, dtype=np.int32)
+    values = np.empty(entry_count, dtype=float)
+    offset = 0
     material_matrices = {
         identifier: _material_stiffness(*properties)
         for identifier, properties in model.materials.items()
@@ -144,9 +149,11 @@ def assemble_solid_stiffness(model: SolidJunctionModel) -> sparse.csc_matrix:
             [3 * int(node) + np.arange(3, dtype=np.int64) for node in element]
         )
         row_indices, column_indices = np.meshgrid(dofs, dofs, indexing="ij")
-        rows.extend(row_indices.reshape(-1).tolist())
-        columns.extend(column_indices.reshape(-1).tolist())
-        values.extend(element_stiffness.reshape(-1).tolist())
+        count = element_stiffness.size
+        rows[offset : offset + count] = row_indices.reshape(-1)
+        columns[offset : offset + count] = column_indices.reshape(-1)
+        values[offset : offset + count] = element_stiffness.reshape(-1)
+        offset += count
     size = 3 * len(model.nodes)
     matrix = sparse.coo_matrix((values, (rows, columns)), shape=(size, size)).tocsc()
     return 0.5 * (matrix + matrix.T)

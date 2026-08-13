@@ -7,13 +7,15 @@ class TestSolverPackageBoundary(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = Path(__file__).parents[1]
+        cls.workspace_examples = cls.root.parent / "examples"
 
     def test_wheel_contains_only_solver_package(self):
         configuration = tomllib.loads(
             (self.root / "pyproject.toml").read_text(encoding="utf-8")
         )
-        include = configuration["tool"]["hatch"]["build"]["targets"]["wheel"]["include"]
-        self.assertEqual(include, ["fe_jax"])
+        finder = configuration["tool"]["setuptools"]["packages"]["find"]
+        self.assertEqual(finder["include"], ["fe_jax*"])
+        self.assertIn("tests*", finder["exclude"])
 
     def test_mesh_and_plot_dependencies_are_optional(self):
         configuration = tomllib.loads(
@@ -58,13 +60,17 @@ class TestSolverPackageBoundary(unittest.TestCase):
         self.assertFalse((self.root / "fe_jax" / "junction_boolean.py").exists())
         self.assertFalse((self.root / "fe_jax" / "junction_c3d20.py").exists())
         self.assertTrue(
-            (self.root / "examples" / "simple_cubic_dehomogenization"
+            (self.workspace_examples / "opensg" / "simple_cubic_dehomogenization"
              / "c3d20_recovery.py").is_file()
         )
-        self.assertTrue((self.root / "tools" / "junction_boolean.py").is_file())
+        self.assertTrue(
+            (self.workspace_examples / "tools" / "junction_boolean.py").is_file()
+        )
 
     def test_simple_cubic_example_is_self_contained(self):
-        example = self.root / "examples" / "simple_cubic_dehomogenization"
+        example = (
+            self.workspace_examples / "opensg" / "simple_cubic_dehomogenization"
+        )
         source = (example / "verify_dehomogenization.py").read_text(
             encoding="utf-8"
         )

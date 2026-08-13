@@ -54,7 +54,7 @@ class BeamElement:
 class HomogenizationTerms:
     """Global arrays assembled before periodic reduction."""
 
-    e: FloatArray
+    e: FloatArray | sparse.spmatrix
     d_h_epsilon: FloatArray
     d_epsilon_epsilon: FloatArray
     d_h_lambda: FloatArray
@@ -126,7 +126,7 @@ def variable_transformation(frame: FloatArray, number_of_nodes: int) -> FloatArr
 
 
 def macro_displacement_matrix(point: FloatArray) -> FloatArray:
-    """Map engineering macroscopic strain to displacement at a point."""
+    """Return ``[A_epsilon; 0]`` in SG coordinates at a point."""
 
     x, y, z = np.asarray(point, dtype=float)
     result = np.zeros((6, 6), dtype=float)
@@ -161,7 +161,7 @@ def create_homogenization_terms(number_of_nodes: int) -> HomogenizationTerms:
 
     number_of_dofs = 6 * number_of_nodes
     return HomogenizationTerms(
-        e=np.zeros((number_of_dofs, number_of_dofs), dtype=float),
+        e=sparse.lil_matrix((number_of_dofs, number_of_dofs), dtype=float),
         d_h_epsilon=np.zeros((number_of_dofs, 6), dtype=float),
         d_epsilon_epsilon=np.zeros((6, 6), dtype=float),
         d_h_lambda=np.zeros((6, number_of_dofs), dtype=float),
@@ -176,7 +176,13 @@ def add_element_terms(
     """Add one beam element contribution to global arrays."""
 
     dofs = element_terms.dofs
-    global_terms.e[np.ix_(dofs, dofs)] += element_terms.e
+    # Beam matrices are small and highly sparse globally.  Accumulating them
+    # into LIL storage avoids allocating O(ndof^2) memory for lattice SGs.
+    for local_row, global_row in enumerate(dofs):
+        for local_column, global_column in enumerate(dofs):
+            value=element_terms.e[local_row,local_column]
+            if value:
+                global_terms.e[int(global_row),int(global_column)] += value
     global_terms.d_h_epsilon[dofs] += element_terms.d_h_epsilon
     global_terms.d_epsilon_epsilon += element_terms.d_epsilon_epsilon
     global_terms.d_h_lambda[:, dofs] += element_terms.d_h_lambda

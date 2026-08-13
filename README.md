@@ -1,5 +1,15 @@
 # Beam and hybrid homogenization
 
+Install the standalone solver once from any directory:
+
+```text
+python -m pip install /path/to/OpenSG-2.0
+```
+
+After installation, `opensg` can be called from any working directory. Input
+and output paths are resolved from the paths supplied on the command line; the
+solver does not depend on the source checkout or the external examples tree.
+
 OpenSG supports three-dimensional Euler--Bernoulli and Timoshenko beam
 structure genes with rigid shared-node junctions or reusable stiffness from
 three-dimensional solid junctions. All junction modes use one command:
@@ -16,7 +26,7 @@ or a previously calculated junction stiffness. See
 [`docs/OpenSG_Beam_Junction_User_Manual.md`](docs/OpenSG_Beam_Junction_User_Manual.md)
 for the complete user manual. Six runnable BCCH examples covering both beam
 theories and all three junction flags are provided under
-[`examples/beam_hybrid/bcch_lambda06`](examples/beam_hybrid/bcch_lambda06).
+[`../examples/opensg/beam_hybrid/bcch_lambda06`](../examples/opensg/beam_hybrid/bcch_lambda06).
 
 # Nonlinear Solver
 

@@ -30,7 +30,7 @@ Localization reconstructs its required operators from those inputs and does
 not require a previous `3D H` run or a `.k` output file.
 
 Geometry builders are optional preprocessing tools. For example,
-`tools/build_boolean_junction_input.py` writes a reusable junction
+`../examples/tools/build_boolean_junction_input.py` writes a reusable junction
 `.sc/.sc.msg` pair. Plotting under `examples/` is optional post-processing and
 is not loaded by either solver.
 

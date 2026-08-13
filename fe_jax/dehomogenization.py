@@ -119,7 +119,7 @@ def recover_beam_states(
 ) -> list[BeamStationState]:
     """Recover member states needed by VABS at requested axial stations."""
 
-    fluctuation = -result.full_fluctuation @ fields.strain
+    fluctuation = result.v_0 @ fields.strain
     strain_tensor, spin, spin_vector = _macro_kinematics(fields)
     states: list[BeamStationState] = []
     for element in sorted(result.elements, key=lambda item: item.identifier):
@@ -135,7 +135,7 @@ def recover_beam_states(
         local = variable_transformation(frame, len(node_ids)) @ fluctuation[dofs]
         gamma_epsilon = _gamma_epsilon(frame, beam_type.theory)
         if beam_type.theory == BeamTheory.EULER_BERNOULLI:
-            local = local + beam_euler._three_node_macro_map(frame) @ fields.strain
+            local = local + beam_euler.nodal_alpha_map(frame) @ fields.strain
         element_states: list[BeamStationState] = []
         for coordinate in xi:
             coordinate = float(coordinate)
@@ -398,7 +398,7 @@ def recover_junction_fields(
         instance = supplement.junction_instances[assembly.identifier]
         solid, displacement_recovery = prepared[assembly.junction_type_id]
         connection_displacement = (
-            assembly.b_epsilon - assembly.b_v @ result.full_fluctuation
+            assembly.b_epsilon + assembly.b_v @ result.v_0
         ) @ fields.strain
         displacement_local = (
             displacement_recovery @ connection_displacement

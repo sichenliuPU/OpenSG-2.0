@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "OpenSG_2.0"
@@ -62,5 +62,6 @@ Documentation = "https://wenbinyugroup.github.io/OpenSG/"
 [project.scripts]
 opensg = "fe_jax.opensg:main"
 
-[tool.hatch.build.targets.wheel]
-include = ["fe_jax"]
+[tool.setuptools.packages.find]
+include = ["fe_jax*"]
+exclude = ["tests*", "docs*"]
